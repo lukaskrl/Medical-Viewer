@@ -22,12 +22,12 @@ function initDefaultToolGroup(extensionManager, toolGroupService, commandsManage
   const tools = {
     active: [
       {
-        toolName: toolNames.WindowLevel,
-        bindings: [{ mouseButton: Enums.MouseBindings.Auxiliary }],
-      },
-      {
         toolName: toolNames.Pan,
         bindings: [{ mouseButton: Enums.MouseBindings.Primary }],
+      },
+      {
+        toolName: toolNames.WindowLevel,
+        bindings: [{ mouseButton: Enums.MouseBindings.Auxiliary }],
       },
       {
         toolName: toolNames.Zoom,

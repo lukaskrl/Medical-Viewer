@@ -50,9 +50,29 @@ function createDicomLocalApi(dicomLocalConfig) {
       studies: {
         mapParams: () => {},
         search: params => {
-          const studyUIDs = DicomMetadataStore.getStudyInstanceUIDs();
+          const {
+            studyInstanceUid,
+            patientId,
+            disableWildcard,
+          } = params || {};
 
-          return studyUIDs.map(StudyInstanceUID => {
+          const allStudyUIDs = DicomMetadataStore.getStudyInstanceUIDs();
+
+          // If a studyInstanceUid is provided, only search within those studies.
+          // This is important for the Study Browser, which expects this call to return
+          // metadata for the specific opened study.
+          const filteredStudyUIDs = studyInstanceUid
+            ? (Array.isArray(studyInstanceUid) ? studyInstanceUid : [studyInstanceUid]).filter(
+                uid => allStudyUIDs.includes(uid)
+              )
+            : allStudyUIDs;
+
+          const useWildcard = disableWildcard !== true;
+          const normalizeQuery = value => (value || '').toString().replace(/\*/g, '');
+
+          const patientIdQuery = normalizeQuery(patientId);
+
+          const studies = filteredStudyUIDs.map(StudyInstanceUID => {
             let numInstances = 0;
             const modalities = new Set();
 
@@ -68,7 +88,7 @@ function createDicomLocalApi(dicomLocalConfig) {
             const firstInstance = study?.series[0]?.instances[0];
 
             if (firstInstance) {
-              return {
+              const mapped = {
                 accession: firstInstance.AccessionNumber,
                 date: firstInstance.StudyDate,
                 description: firstInstance.StudyDescription,
@@ -81,8 +101,22 @@ function createDicomLocalApi(dicomLocalConfig) {
                 modalities: Array.from(modalities).join('/'),
                 NumInstances: numInstances,
               };
+
+              // Optional filters (best-effort to match DICOMweb behavior)
+              if (patientIdQuery) {
+                const mrn = (mapped.mrn || '').toString();
+                const matches = useWildcard ? mrn.includes(patientIdQuery) : mrn === patientIdQuery;
+                if (!matches) {
+                  return;
+                }
+              }
+
+              return mapped;
             }
           });
+
+          // Remove empty entries from skipped studies/filters
+          return studies.filter(Boolean);
         },
         processResults: () => {
           console.warn(' DICOMLocal QUERY processResults not implemented');

@@ -18,6 +18,16 @@ function ViewerHeader({ appConfig }: withAppTypes<{ appConfig: AppTypes.Config }
   const location = useLocation();
 
   const onClickReturnButton = () => {
+    // Prefer going back in SPA history (same behavior as the browser back button).
+    // This is especially important for `dicomlocal`, where the uploaded studies live in memory
+    // and a hard navigation / leaving the SPA loses that context.
+    //
+    // React Router stores an internal `idx` in history.state; when it's > 0 we can safely go back.
+    if (typeof window !== 'undefined' && window.history?.state?.idx > 0) {
+      navigate(-1);
+      return;
+    }
+
     const { pathname } = location;
     const dataSourceIdx = pathname.indexOf('/', 1);
 
