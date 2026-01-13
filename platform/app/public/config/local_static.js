@@ -12,7 +12,7 @@ window.config = {
   showLoadingIndicator: true,
   strictZSpacingForVolumeViewport: true,
   // filterQueryParam: false,
-  defaultDataSourceName: 'local',
+  defaultDataSourceName: 'dicomlocal',
   dataSources: [
     {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',

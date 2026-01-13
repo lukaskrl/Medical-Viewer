@@ -144,10 +144,12 @@ function Local({ modePath }: LocalProps) {
                 ) : (
                   <div className="space-y-2">
                     <p className="text-primary pt-0 text-xl">
-                      Drag and drop your DICOM files & folders here <br />
+                      Drag and drop your DICOM or NIfTI files & folders here <br />
                       to load them locally.
                     </p>
                     <p className="text-muted-foreground text-base">
+                      Supported formats: DICOM (.dcm), NIfTI (.nii, .nii.gz)
+                      <br />
                       Note: Your data remains locally within your browser
                       <br /> and is never uploaded to any server.
                     </p>

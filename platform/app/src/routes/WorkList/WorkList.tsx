@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import classnames from 'classnames';
 import PropTypes from 'prop-types';
 import { Link, useNavigate } from 'react-router-dom';
@@ -6,11 +6,13 @@ import moment from 'moment';
 import qs from 'query-string';
 import isEqual from 'lodash.isequal';
 import { useTranslation } from 'react-i18next';
+import Dropzone from 'react-dropzone';
 //
 import filtersMeta from './filtersMeta.js';
 import { useAppConfig } from '@state';
 import { useDebounce, useSearchParams } from '../../hooks';
-import { utils, Types as coreTypes } from '@ohif/core';
+import { utils, Types as coreTypes, DicomMetadataStore, MODULE_TYPES } from '@ohif/core';
+import filesToStudies from '../Local/filesToStudies';
 
 import {
   StudyListExpandedRow,
@@ -43,6 +45,25 @@ import { extensionManager } from '../../App';
 
 const PatientInfoVisibility = Types.PatientInfoVisibility;
 
+// Helper to get local data source for drag and drop
+function getLocalDataSource() {
+  const dataSourceModules = extensionManager.modules[MODULE_TYPES.DATA_SOURCE];
+  const localDataSources = dataSourceModules.reduce((acc, curr) => {
+    const mods = [];
+    curr.module.forEach(mod => {
+      if (mod.type === 'localApi') {
+        mods.push(mod);
+      }
+    });
+    return acc.concat(mods);
+  }, []);
+
+  if (localDataSources.length > 0) {
+    return localDataSources[0].createDataSource({});
+  }
+  return null;
+}
+
 const { sortBySeriesDate } = utils;
 
 const seriesInStudiesMap = new Map();
@@ -65,6 +86,9 @@ function WorkList({
   const { t } = useTranslation();
   // ~ Modes
   const [appConfig] = useAppConfig();
+  // ~ Drag and drop for local files
+  const [dropInitiated, setDropInitiated] = useState(false);
+  const dropzoneRef = useRef(null);
   // ~ Filters
   const searchParams = useSearchParams();
   const navigate = useNavigate();
@@ -540,6 +564,31 @@ function WorkList({
 
   const isDicomLocal = extensionManager.activeDataSourceName === 'dicomlocal';
 
+  // Handle drag and drop of local files
+  const onDrop = async acceptedFiles => {
+    if (acceptedFiles.length === 0) return;
+
+    setDropInitiated(true);
+    try {
+      const studies = await filesToStudies(acceptedFiles, getLocalDataSource());
+
+      if (studies.length > 0) {
+        const query = new URLSearchParams();
+        studies.forEach(id => query.append('StudyInstanceUIDs', id));
+        query.append('datasources', 'dicomlocal');
+
+        // Get the first available mode
+        const defaultMode = appConfig.loadedModes?.[0]?.routeName || 'viewer';
+        navigate(`/${defaultMode}?${decodeURIComponent(query.toString())}`);
+      } else {
+        setDropInitiated(false);
+      }
+    } catch (error) {
+      console.error('Error processing dropped files:', error);
+      setDropInitiated(false);
+    }
+  };
+
   const dataSourceConfigurationComponent = customizationService.getCustomization(
     'ohif.dataSourceConfigurationComponent'
   );
@@ -591,13 +640,52 @@ function WorkList({
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center pt-48">
-              {appConfig.showLoadingIndicator && isLoadingData ? (
-                <LoadingIndicatorProgress className={'h-full w-full bg-black'} />
-              ) : (
-                <EmptyStudies />
+            <Dropzone
+              ref={dropzoneRef}
+              onDrop={acceptedFiles => {
+                onDrop(acceptedFiles);
+              }}
+              noClick
+            >
+              {({ getRootProps, isDragActive }) => (
+                <div
+                  {...getRootProps()}
+                  className={classnames(
+                    'flex flex-col items-center justify-center pt-48 min-h-[400px] transition-colors duration-200',
+                    {
+                      'bg-primary/10 border-2 border-dashed border-primary rounded-lg m-4': isDragActive,
+                    }
+                  )}
+                >
+                  {appConfig.showLoadingIndicator && isLoadingData ? (
+                    <LoadingIndicatorProgress className={'h-full w-full bg-black'} />
+                  ) : dropInitiated ? (
+                    <LoadingIndicatorProgress className={'h-full w-full bg-black'} />
+                  ) : (
+                    <div className="flex flex-col items-center">
+                      <EmptyStudies />
+                      <div className="mt-8 text-center">
+                        <p className="text-muted-foreground text-base">
+                          {isDragActive ? (
+                            <span className="text-primary font-medium">
+                              {t('StudyList:Drop files here to load them')}
+                            </span>
+                          ) : (
+                            <>
+                              {t('StudyList:Drag and drop DICOM or NIfTI files here')}
+                              <br />
+                              <span className="text-sm">
+                                {t('StudyList:Supported formats')}: .dcm, .nii, .nii.gz
+                              </span>
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
-            </div>
+            </Dropzone>
           )}
         </ScrollArea>
       </div>
