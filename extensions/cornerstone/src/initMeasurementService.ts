@@ -251,6 +251,12 @@ const connectToolsToMeasurementService = ({
         // in the future
         annotationAddedEventDetail.uid = annotationUID;
         annotationToMeasurement(toolName, annotationAddedEventDetail);
+
+        // Auto-select newly placed annotations so their labels/data are visible
+        if (csToolsEvent.type === completedEvt) {
+          console.log('Auto-selecting annotation:', annotationUID);
+          annotation.selection.setAnnotationSelected(annotationUID, true);
+        }
       }
     } catch (error) {
       console.warn('Failed to add measurement:', error);
@@ -280,6 +286,9 @@ const connectToolsToMeasurementService = ({
       annotationToMeasurement(toolName, annotationModifiedEventDetail, true);
 
       if (toolName === toolNames.CustomProbe) {
+        // Auto-select the annotation when its coordinates change so labels are visible
+        annotation.selection.setAnnotationSelected(annotationUID, true);
+
         const updatedMeasurement = measurementService.getMeasurement(annotationUID);
         if (updatedMeasurement?.worldPosition && updatedMeasurement.FrameOfReferenceUID) {
           syncCustomProbeViewports({

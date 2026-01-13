@@ -122,6 +122,12 @@ class CustomProbeTool extends ProbeTool {
 
       renderStatus = true;
 
+      // Only draw text box (labels, coordinates, HU values) for selected/highlighted annotations
+      const isSelected = annotationModule.selection.isAnnotationSelected(annotationUID);
+      if (!isSelected) {
+        continue;
+      }
+
       // Draw text box
       const options = this.getLinkedTextBoxStyle(styleSpecifier, annotation);
       if (!options.visibility) {
