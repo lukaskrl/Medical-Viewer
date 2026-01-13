@@ -103,26 +103,12 @@ const commandsModule = (props: withAppTypes) => {
       const srDataset = _generateReport(measurementData, additionalFindingTypes, options);
       const reportBlob = dcmjs.data.datasetToBlob(srDataset);
 
-      // Generate a filename from SR metadata: patient_name-series_description.dcm
+      // Generate a filename: Patient_0000_finished-report.dcm
       const rawPatientName = srDataset.PatientName?.Alphabetic || srDataset.PatientName || 'Patient';
       const patientName =
         utils.formatPN(rawPatientName) || String(rawPatientName).trim() || 'Patient';
 
-      // Prefer the referenced image SeriesDescription (0008,103E) from the first measurement
-      const firstMeasurement = measurementData?.[0];
-      const referencedSeries = firstMeasurement
-        ? DicomMetadataStore.getSeries(
-            firstMeasurement.referenceStudyUID,
-            firstMeasurement.referenceSeriesUID
-          )
-        : null;
-      const referencedFirstInstance = referencedSeries?.instances?.[0];
-
-      const rawSeriesDescription =
-        referencedFirstInstance?.SeriesDescription || srDataset.SeriesDescription || 'Series';
-      const seriesDescription = String(rawSeriesDescription).trim() || 'Series';
-
-      const filename = `${patientName}-${seriesDescription}.dcm`.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filename = `${patientName}-finished-report.dcm`.replace(/[^a-zA-Z0-9._-]/g, '_');
 
       // Create a download link and trigger download
       const url = URL.createObjectURL(reportBlob);

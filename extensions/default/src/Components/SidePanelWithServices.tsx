@@ -85,7 +85,8 @@ const SidePanelWithServices = ({
         if (sidePanelExpanded || activatePanelEvent.forceActive) {
           const tabIndex = tabs.findIndex(tab => tab.id === activatePanelEvent.panelId);
           if (tabIndex !== -1) {
-            if (!closedManually) {
+            // forceActive should override closedManually to truly force the panel open
+            if (!closedManually || activatePanelEvent.forceActive) {
               setSidePanelExpanded(true);
             }
             setActiveTabIndex(tabIndex);

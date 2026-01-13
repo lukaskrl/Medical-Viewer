@@ -72,14 +72,11 @@ function promptHydrationDialog({
   const extensionManager = servicesManager._extensionManager;
   const appConfig = extensionManager._appConfig;
 
-  // Todo: make this use enum from the extension, we should move the enum
-  const standardMode = appConfig?.measurementTrackingMode === 'standard';
-
   return new Promise(async function (resolve, reject) {
     // For RT and SEG, we check disableConfirmationPrompts
-    // For SR, we check if standardMode is true
+    // For SR, we always auto-hydrate without prompting for a seamless experience
     const shouldPrompt =
-      type === HydrationType.SR ? standardMode : !appConfig?.disableConfirmationPrompts;
+      type === HydrationType.SR ? false : !appConfig?.disableConfirmationPrompts;
 
     const promptResult = shouldPrompt
       ? await _askHydrate(uiViewportDialogService, customizationService, viewportId, type)

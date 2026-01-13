@@ -8,10 +8,15 @@ type CheckHasDirtyAndSimplifiedModeProps = {
 
 const onDoubleClickHandler = {
   callbacks: [
-    ({ activeViewportId, servicesManager, isHangingProtocolLayout, appConfig }) =>
+    ({ activeViewportId, servicesManager, isHangingProtocolLayout, appConfig, commandsManager }) =>
       async displaySetInstanceUID => {
-        const { hangingProtocolService, viewportGridService, uiNotificationService } =
-          servicesManager.services;
+        const {
+          hangingProtocolService,
+          viewportGridService,
+          uiNotificationService,
+          displaySetService,
+          panelService,
+        } = servicesManager.services;
         let updatedViewports = [];
         const viewportId = activeViewportId;
         const haveDirtyMeasurementsInSimplifiedMode = checkHasDirtyAndSimplifiedMode({
@@ -19,6 +24,40 @@ const onDoubleClickHandler = {
           appConfig,
           displaySetInstanceUID,
         });
+
+        // Check if this is an SR displaySet - if so, directly hydrate it
+        // to skip the preview and prompt, loading the referenced image directly
+        const displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
+        if (displaySet?.Modality === 'SR') {
+          try {
+            // Load the SR displaySet if not already loaded
+            if (!displaySet.isLoaded && displaySet.load) {
+              await displaySet.load();
+            }
+
+            // Directly hydrate the SR and show the referenced image
+            await commandsManager.runCommand('hydrateSecondaryDisplaySet', {
+              displaySet,
+              viewportId,
+            });
+
+            // Automatically open the measurements panel after SR hydration
+            panelService.activatePanel(
+              '@ohif/extension-measurement-tracking.panelModule.trackedMeasurements',
+              true
+            );
+            return;
+          } catch (error) {
+            console.warn('Failed to hydrate SR displaySet:', error);
+            uiNotificationService.show({
+              title: 'SR Load',
+              message: 'Failed to load the structured report measurements.',
+              type: 'error',
+              duration: 3000,
+            });
+            return;
+          }
+        }
 
         try {
           if (!haveDirtyMeasurementsInSimplifiedMode) {

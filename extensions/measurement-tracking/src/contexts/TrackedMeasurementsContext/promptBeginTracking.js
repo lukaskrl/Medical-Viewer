@@ -22,15 +22,11 @@ function promptBeginTracking({ servicesManager, extensionManager }, ctx, evt) {
   const { viewportId, StudyInstanceUID, SeriesInstanceUID } = evt.data || evt;
 
   return new Promise(async function (resolve, reject) {
-    const standardMode = appConfig?.measurementTrackingMode === measurementTrackingMode.STANDARD;
     const noTrackingMode = appConfig?.measurementTrackingMode === measurementTrackingMode.NONE;
-    let promptResult;
 
-    promptResult = noTrackingMode
-      ? RESPONSE.NO_NEVER
-      : standardMode
-        ? await _askTrackMeasurements(uiViewportDialogService, customizationService, viewportId)
-        : RESPONSE.SET_STUDY_AND_SERIES;
+    // Always auto-accept tracking for a seamless experience
+    // (previously would prompt in 'standard' mode)
+    const promptResult = noTrackingMode ? RESPONSE.NO_NEVER : RESPONSE.SET_STUDY_AND_SERIES;
 
     resolve({
       userResponse: promptResult,
