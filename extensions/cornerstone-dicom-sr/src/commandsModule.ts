@@ -108,7 +108,7 @@ const commandsModule = (props: withAppTypes) => {
       const patientName =
         utils.formatPN(rawPatientName) || String(rawPatientName).trim() || 'Patient';
 
-      const filename = `${patientName}-finished-report.dcm`.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filename = `${patientName}-report.dcm`.replace(/[^a-zA-Z0-9._-]/g, '_');
 
       // Create a download link and trigger download
       const url = URL.createObjectURL(reportBlob);

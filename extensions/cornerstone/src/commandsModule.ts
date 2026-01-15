@@ -560,6 +560,16 @@ function commandsModule({
         displayMeasurement.isActive = displayMeasurement.uid === measurementUID;
       }
 
+      // Highlight the clicked measurement in the menu immediately by updating isSelected
+      // Deselect any currently selected measurements first
+      const allMeasurements = measurementService.getMeasurements();
+      for (const m of allMeasurements) {
+        if (m.isSelected && m.uid !== measurementUID) {
+          measurementService.setMeasurementSelected(m.uid, false);
+        }
+      }
+      measurementService.setMeasurementSelected(measurementUID, true);
+
       // If a measurement is hidden, clicking it in the measurement panel should not
       // immediately unhide it; instead we enter "relocate on next click" mode and only
       // make it visible after the user places it.
@@ -602,6 +612,16 @@ function commandsModule({
         displayMeasurement.isActive = displayMeasurement.uid === measurementUID;
       }
 
+      // Highlight the clicked measurement in the menu immediately by updating isSelected
+      // Deselect any currently selected measurements first
+      const allMeasurements = measurementService.getMeasurements();
+      for (const m of allMeasurements) {
+        if (m.isSelected && m.uid !== measurementUID) {
+          measurementService.setMeasurementSelected(m.uid, false);
+        }
+      }
+      measurementService.setMeasurementSelected(measurementUID, true);
+
       if (wasHidden || relocateOnNextClick) {
         queueMeasurementRelocation({
           measurementUID,
@@ -619,6 +639,12 @@ function commandsModule({
       }
 
       if (!measurement.worldPosition || !measurement.FrameOfReferenceUID) {
+        // Fallback to regular jump for 2D images that lack 3D positioning info
+        // This handles X-ray and other 2D modalities that don't have FrameOfReferenceUID
+        if (measurement.referencedImageId || measurement.metadata?.referencedImageId) {
+          measurementService.jumpToMeasurement(viewportGridService.getActiveViewportId(), measurementUID);
+          return;
+        }
         console.warn('CustomProbe measurement missing world position or FrameOfReferenceUID');
         return;
       }

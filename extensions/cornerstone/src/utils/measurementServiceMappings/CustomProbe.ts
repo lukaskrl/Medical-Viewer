@@ -97,7 +97,7 @@ const Probe = {
       isVisible,
       referenceSeriesUID: displaySet.SeriesInstanceUID,
       referenceStudyUID: displaySet.StudyInstanceUID,
-      referencedImageId: undefined, //metadata.referencedImageId,
+      referencedImageId: metadata.referencedImageId,
       frameNumber: mappedAnnotations?.[0]?.frameNumber || 1,
       toolName: metadata.toolName,
       displaySetInstanceUID: displaySet.displaySetInstanceUID,

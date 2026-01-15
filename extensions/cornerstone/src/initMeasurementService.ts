@@ -350,9 +350,25 @@ const connectToolsToMeasurementService = ({
       }
 
       if (addedSelectedAnnotationUIDs) {
-        addedSelectedAnnotationUIDs.forEach(annotationUID =>
-          measurementService.setMeasurementSelected(annotationUID, true)
-        );
+        addedSelectedAnnotationUIDs.forEach(annotationUID => {
+          measurementService.setMeasurementSelected(annotationUID, true);
+
+          // Sync other viewports when a CustomProbe annotation is selected (clicked in viewport)
+          const measurement = measurementService.getMeasurement(annotationUID);
+          if (
+            measurement?.toolName === toolNames.CustomProbe &&
+            measurement.worldPosition &&
+            measurement.FrameOfReferenceUID
+          ) {
+            syncCustomProbeViewports({
+              worldPosition: measurement.worldPosition,
+              FrameOfReferenceUID: measurement.FrameOfReferenceUID,
+              referencedImageId: measurement.referencedImageId,
+              displaySetInstanceUID: measurement.displaySetInstanceUID,
+              cornerstoneViewportService,
+            });
+          }
+        });
       }
     } catch (error) {
       console.warn('Failed to select/unselect measurements:', error);
