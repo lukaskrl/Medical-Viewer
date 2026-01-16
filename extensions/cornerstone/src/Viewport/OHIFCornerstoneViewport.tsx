@@ -5,6 +5,7 @@ import { Enums, eventTarget, getEnabledElement } from '@cornerstonejs/core';
 import { MeasurementService, useViewportRef } from '@ohif/core';
 import { useViewportDialog } from '@ohif/ui-next';
 import type { Types as csTypes } from '@cornerstonejs/core';
+import { vec3 } from 'gl-matrix';
 
 import { setEnabledElement } from '../state';
 
@@ -442,6 +443,215 @@ const OHIFCornerstoneViewport = React.memo(
         element.removeEventListener('pointerdown', handlePointerDown, { capture: true });
       };
     }, [enabledVPElement, measurementService]);
+
+    // Handle CircleROI center click to move, edge click to resize
+    useEffect(() => {
+      const element = elementRef.current;
+      if (!element) {
+        return;
+      }
+
+      let circleROIInteractionState: {
+        annotationUID: string;
+        isMoving: boolean;
+        isResizing: boolean;
+        dragStartCenter: csTypes.Point3 | null;
+        dragStartClickPos: csTypes.Point3 | null;
+        originalRadiusVec: csTypes.Point3 | null;
+      } | null = null;
+
+      const handlePointerDown = (evt: PointerEvent) => {
+        if (evt.button !== 0 || evt.ctrlKey || evt.metaKey || evt.altKey || evt.shiftKey) {
+          return;
+        }
+
+        const enabledElement = getEnabledElement(element);
+        if (!enabledElement) {
+          return;
+        }
+
+        const viewport = enabledElement.viewport as csTypes.IStackViewport | csTypes.IVolumeViewport;
+        const worldPosition = _getWorldPositionFromEvent(evt, element, viewport);
+        if (!worldPosition) {
+          return;
+        }
+
+        // Find nearby CircleROI annotation
+        const canvasCoordinates: [number, number] = [
+          evt.clientX - element.getBoundingClientRect().left,
+          evt.clientY - element.getBoundingClientRect().top,
+        ];
+
+        const nearbyAnnotation = cs3DTools.utilities.getAnnotationNearPoint(
+          element,
+          canvasCoordinates
+        );
+
+        if (
+          !nearbyAnnotation ||
+          nearbyAnnotation.metadata?.toolName !== 'CircleROI' ||
+          !nearbyAnnotation.data?.handles?.points
+        ) {
+          return;
+        }
+
+        const points = nearbyAnnotation.data.handles.points;
+        if (points.length < 2) {
+          return;
+        }
+
+        // Calculate circle center and radius
+        const center = points[0];
+        const radiusPoint = points[1];
+
+        // Calculate radius in world coordinates
+        const radiusVec = vec3.subtract(vec3.create(), radiusPoint, center);
+        const radius = vec3.length(radiusVec);
+
+        // Calculate distance from click to center
+        const clickToCenter = vec3.subtract(vec3.create(), worldPosition, center);
+        const distanceToCenter = vec3.length(clickToCenter);
+
+        // Determine if click is near center (within 30% of radius) or near edge (within 20% of radius from edge)
+        const centerThreshold = radius * 0.3;
+        const edgeThreshold = radius * 0.2;
+        const distanceToEdge = Math.abs(distanceToCenter - radius);
+
+        if (distanceToCenter < centerThreshold) {
+          // Click is near center - move the circle
+          evt.preventDefault();
+          evt.stopPropagation();
+
+          // Calculate and store the original radius vector (from center to radius point)
+          const originalRadiusVec = vec3.subtract(
+            vec3.create(),
+            radiusPoint,
+            center
+          );
+
+          circleROIInteractionState = {
+            annotationUID: nearbyAnnotation.annotationUID,
+            isMoving: true,
+            isResizing: false,
+            dragStartCenter: [...center] as csTypes.Point3,
+            dragStartClickPos: [...worldPosition] as csTypes.Point3,
+            originalRadiusVec: [
+              originalRadiusVec[0],
+              originalRadiusVec[1],
+              originalRadiusVec[2],
+            ] as csTypes.Point3,
+          };
+
+          // Select the annotation
+          cs3DTools.annotation.selection.setAnnotationSelected(
+            nearbyAnnotation.annotationUID,
+            true
+          );
+        } else if (distanceToEdge < edgeThreshold) {
+          // Click is near edge - resize the radius (let default behavior handle it)
+          // Just mark that we're resizing
+          circleROIInteractionState = {
+            annotationUID: nearbyAnnotation.annotationUID,
+            isMoving: false,
+            isResizing: true,
+            dragStartCenter: null,
+            dragStartClickPos: null,
+            originalRadiusVec: null,
+          };
+        }
+      };
+
+      const handlePointerMove = (evt: PointerEvent) => {
+        if (!circleROIInteractionState?.isMoving) {
+          return;
+        }
+
+        const enabledElement = getEnabledElement(element);
+        if (!enabledElement) {
+          return;
+        }
+
+        const viewport = enabledElement.viewport as csTypes.IStackViewport | csTypes.IVolumeViewport;
+        const currentWorldPos = _getWorldPositionFromEvent(evt, element, viewport);
+        if (!currentWorldPos || !circleROIInteractionState.dragStartCenter || !circleROIInteractionState.dragStartClickPos) {
+          return;
+        }
+
+        const annotationInstance = cs3DTools.annotation.state.getAnnotation(
+          circleROIInteractionState.annotationUID
+        );
+        if (!annotationInstance || !annotationInstance.data?.handles?.points) {
+          return;
+        }
+
+        const points = annotationInstance.data.handles.points;
+        if (points.length < 2 || !circleROIInteractionState.originalRadiusVec) {
+          return;
+        }
+
+        // Calculate the delta from the drag start
+        const delta = vec3.subtract(
+          vec3.create(),
+          currentWorldPos,
+          circleROIInteractionState.dragStartClickPos
+        );
+
+        // Move center to new position
+        const newCenter: csTypes.Point3 = [
+          circleROIInteractionState.dragStartCenter[0] + delta[0],
+          circleROIInteractionState.dragStartCenter[1] + delta[1],
+          circleROIInteractionState.dragStartCenter[2] + delta[2],
+        ];
+
+        // Move radius point to maintain the same radius vector from the new center
+        // This preserves the circle's radius during movement
+        points[0] = newCenter;
+        points[1] = [
+          newCenter[0] + circleROIInteractionState.originalRadiusVec[0],
+          newCenter[1] + circleROIInteractionState.originalRadiusVec[1],
+          newCenter[2] + circleROIInteractionState.originalRadiusVec[2],
+        ];
+
+        // Move textbox with the annotation if present
+        const textBoxWorldPosition = annotationInstance.data?.handles?.textBox?.worldPosition;
+        if (Array.isArray(textBoxWorldPosition) && textBoxWorldPosition.length >= 3) {
+          annotationInstance.data.handles.textBox.worldPosition = [
+            textBoxWorldPosition[0] + delta[0],
+            textBoxWorldPosition[1] + delta[1],
+            textBoxWorldPosition[2] + delta[2],
+          ];
+        }
+
+        annotationInstance.metadata.referencedImageId =
+          viewport.getCurrentImageId?.() ?? annotationInstance.metadata.referencedImageId;
+        annotationInstance.invalidated = true;
+
+        cs3DTools.annotation.state.triggerAnnotationModified(
+          annotationInstance,
+          element,
+          cs3DTools.Enums.ChangeTypes.HandlesUpdated
+        );
+
+        // Ensure the viewport re-renders annotations right away.
+        triggerAnnotationRenderForViewportIds([viewportId]);
+      };
+
+      const handlePointerUp = () => {
+        circleROIInteractionState = null;
+      };
+
+      element.addEventListener('pointerdown', handlePointerDown, { capture: true });
+      element.addEventListener('pointermove', handlePointerMove, { capture: true });
+      element.addEventListener('pointerup', handlePointerUp, { capture: true });
+      element.addEventListener('pointerleave', handlePointerUp, { capture: true });
+
+      return () => {
+        element.removeEventListener('pointerdown', handlePointerDown, { capture: true });
+        element.removeEventListener('pointermove', handlePointerMove, { capture: true });
+        element.removeEventListener('pointerup', handlePointerUp, { capture: true });
+        element.removeEventListener('pointerleave', handlePointerUp, { capture: true });
+      };
+    }, [enabledVPElement, viewportId]);
 
     const Notification = customizationService.getCustomization('ui.notificationComponent');
 

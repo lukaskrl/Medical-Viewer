@@ -46,6 +46,7 @@ import * as polySeg from '@cornerstonejs/polymorphic-segmentation';
 import CalibrationLineTool from './tools/CalibrationLineTool';
 import ImageOverlayViewerTool from './tools/ImageOverlayViewerTool';
 import CustomProbeTool from './tools/CustomProbeTool';
+import CustomCircleROITool from './tools/CustomCircleROITool';
 
 export default function initCornerstoneTools(configuration = {}) {
   CrosshairsTool.isAnnotation = false;
@@ -77,7 +78,7 @@ export default function initCornerstoneTools(configuration = {}) {
   addTool(RectangleROITool);
   addTool(RectangleROIThresholdTool);
   addTool(EllipticalROITool);
-  addTool(CircleROITool);
+  addTool(CustomCircleROITool);
   addTool(BidirectionalTool);
   addTool(ArrowAnnotateTool);
   addTool(DragProbeTool);
