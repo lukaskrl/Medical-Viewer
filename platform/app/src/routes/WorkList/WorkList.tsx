@@ -566,7 +566,9 @@ function WorkList({
 
   // Handle drag and drop of local files
   const onDrop = async acceptedFiles => {
-    if (acceptedFiles.length === 0) return;
+    if (acceptedFiles.length === 0) {
+      return;
+    }
 
     setDropInitiated(true);
     try {
@@ -604,59 +606,69 @@ function WorkList({
       />
       <Onboarding />
       <InvestigationalUseDialog dialogConfiguration={appConfig?.investigationalUseDialog} />
-      <div className="flex h-full flex-col overflow-y-auto">
-        <ScrollArea>
-          <div className="flex grow flex-col">
-            <StudyListFilter
-              numOfStudies={pageNumber * resultsPerPage > 100 ? 101 : numOfStudies}
-              filtersMeta={filtersMeta}
-              filterValues={{ ...filterValues, ...defaultSortValues }}
-              onChange={setFilterValues}
-              clearFilters={() => setFilterValues(defaultFilterValues)}
-              isFiltering={isFiltering(filterValues, defaultFilterValues)}
-              onUploadClick={uploadProps ? () => show(uploadProps) : isDicomLocal ? () => navigate('/local') : undefined}
-              getDataSourceConfigurationComponent={
-                dataSourceConfigurationComponent
-                  ? () => dataSourceConfigurationComponent()
-                  : undefined
-              }
+      <Dropzone
+        ref={dropzoneRef}
+        onDrop={acceptedFiles => {
+          onDrop(acceptedFiles);
+        }}
+        noClick
+      >
+        {({ getRootProps, isDragActive }) => (
+          <div
+            {...getRootProps()}
+            className="flex h-full flex-col overflow-y-auto"
+          >
+            <div
+              className={classnames(
+                'pointer-events-none absolute inset-0 z-40 transition-colors duration-200',
+                {
+                  'bg-primary/10 border-primary m-4 rounded-lg border-2 border-dashed':
+                    isDragActive,
+                }
+              )}
             />
-          </div>
-          {hasStudies ? (
-            <div className="flex grow flex-col">
-              <StudyListTable
-                tableDataSource={tableDataSource.slice(offset, offsetAndTake)}
-                numOfStudies={numOfStudies}
-                querying={querying}
-                filtersMeta={filtersMeta}
-              />
-              <div className="grow">
-                <StudyListPagination
-                  onChangePage={onPageNumberChange}
-                  onChangePerPage={onResultsPerPageChange}
-                  currentPage={pageNumber}
-                  perPage={resultsPerPage}
+            <ScrollArea>
+              <div className="flex grow flex-col">
+                <StudyListFilter
+                  numOfStudies={pageNumber * resultsPerPage > 100 ? 101 : numOfStudies}
+                  filtersMeta={filtersMeta}
+                  filterValues={{ ...filterValues, ...defaultSortValues }}
+                  onChange={setFilterValues}
+                  clearFilters={() => setFilterValues(defaultFilterValues)}
+                  isFiltering={isFiltering(filterValues, defaultFilterValues)}
+                  onUploadClick={
+                    uploadProps
+                      ? () => show(uploadProps)
+                      : isDicomLocal
+                        ? () => navigate('/local')
+                        : undefined
+                  }
+                  getDataSourceConfigurationComponent={
+                    dataSourceConfigurationComponent
+                      ? () => dataSourceConfigurationComponent()
+                      : undefined
+                  }
                 />
               </div>
-            </div>
-          ) : (
-            <Dropzone
-              ref={dropzoneRef}
-              onDrop={acceptedFiles => {
-                onDrop(acceptedFiles);
-              }}
-              noClick
-            >
-              {({ getRootProps, isDragActive }) => (
-                <div
-                  {...getRootProps()}
-                  className={classnames(
-                    'flex flex-col items-center justify-center pt-48 min-h-[400px] transition-colors duration-200',
-                    {
-                      'bg-primary/10 border-2 border-dashed border-primary rounded-lg m-4': isDragActive,
-                    }
-                  )}
-                >
+              {hasStudies ? (
+                <div className="flex grow flex-col">
+                  <StudyListTable
+                    tableDataSource={tableDataSource.slice(offset, offsetAndTake)}
+                    numOfStudies={numOfStudies}
+                    querying={querying}
+                    filtersMeta={filtersMeta}
+                  />
+                  <div className="grow">
+                    <StudyListPagination
+                      onChangePage={onPageNumberChange}
+                      onChangePerPage={onResultsPerPageChange}
+                      currentPage={pageNumber}
+                      perPage={resultsPerPage}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex min-h-[400px] flex-col items-center justify-center pt-48">
                   {appConfig.showLoadingIndicator && isLoadingData ? (
                     <LoadingIndicatorProgress className={'h-full w-full bg-black'} />
                   ) : dropInitiated ? (
@@ -685,10 +697,10 @@ function WorkList({
                   )}
                 </div>
               )}
-            </Dropzone>
-          )}
-        </ScrollArea>
-      </div>
+            </ScrollArea>
+          </div>
+        )}
+      </Dropzone>
     </div>
   );
 }

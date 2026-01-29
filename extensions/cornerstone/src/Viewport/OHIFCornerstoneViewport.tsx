@@ -512,10 +512,20 @@ const OHIFCornerstoneViewport = React.memo(
         const clickToCenter = vec3.subtract(vec3.create(), worldPosition, center);
         const distanceToCenter = vec3.length(clickToCenter);
 
-        // Determine if click is near center (within 30% of radius) or near edge (within 20% of radius from edge)
+        // Determine if click is near center (within 30% of radius) - if so, move the circle
+        // Otherwise, if we're on or near the circle (within 20% of radius from edge), resize it
         const centerThreshold = radius * 0.3;
-        const edgeThreshold = radius * 0.2;
+        const edgeTolerance = radius * 0.2; // How far outside/inside the circle edge we still consider "on the circle"
         const distanceToEdge = Math.abs(distanceToCenter - radius);
+
+        // Only handle if we're actually clicking on or near the circle
+        // This prevents interference with other annotations
+        const isOnCircle = distanceToEdge < edgeTolerance || distanceToCenter <= radius + edgeTolerance;
+
+        if (!isOnCircle) {
+          // Not clicking on the circle, let other handlers process this
+          return;
+        }
 
         if (distanceToCenter < centerThreshold) {
           // Click is near center - move the circle
@@ -547,22 +557,31 @@ const OHIFCornerstoneViewport = React.memo(
             nearbyAnnotation.annotationUID,
             true
           );
-        } else if (distanceToEdge < edgeThreshold) {
-          // Click is near edge - resize the radius (let default behavior handle it)
-          // Just mark that we're resizing
+        } else {
+          // Click is anywhere on the circle (not near center) - resize the radius
+          evt.preventDefault();
+          evt.stopPropagation();
+
+          // Store the initial click position and center for resizing
           circleROIInteractionState = {
             annotationUID: nearbyAnnotation.annotationUID,
             isMoving: false,
             isResizing: true,
-            dragStartCenter: null,
-            dragStartClickPos: null,
+            dragStartCenter: [...center] as csTypes.Point3,
+            dragStartClickPos: [...worldPosition] as csTypes.Point3,
             originalRadiusVec: null,
           };
+
+          // Select the annotation
+          cs3DTools.annotation.selection.setAnnotationSelected(
+            nearbyAnnotation.annotationUID,
+            true
+          );
         }
       };
 
       const handlePointerMove = (evt: PointerEvent) => {
-        if (!circleROIInteractionState?.isMoving) {
+        if (!circleROIInteractionState || (!circleROIInteractionState.isMoving && !circleROIInteractionState.isResizing)) {
           return;
         }
 
@@ -585,41 +604,70 @@ const OHIFCornerstoneViewport = React.memo(
         }
 
         const points = annotationInstance.data.handles.points;
-        if (points.length < 2 || !circleROIInteractionState.originalRadiusVec) {
+        if (points.length < 2) {
           return;
         }
 
-        // Calculate the delta from the drag start
-        const delta = vec3.subtract(
-          vec3.create(),
-          currentWorldPos,
-          circleROIInteractionState.dragStartClickPos
-        );
+        if (circleROIInteractionState.isMoving) {
+          // Moving the circle
+          if (!circleROIInteractionState.originalRadiusVec) {
+            return;
+          }
 
-        // Move center to new position
-        const newCenter: csTypes.Point3 = [
-          circleROIInteractionState.dragStartCenter[0] + delta[0],
-          circleROIInteractionState.dragStartCenter[1] + delta[1],
-          circleROIInteractionState.dragStartCenter[2] + delta[2],
-        ];
+          // Calculate the delta from the drag start
+          const delta = vec3.subtract(
+            vec3.create(),
+            currentWorldPos,
+            circleROIInteractionState.dragStartClickPos
+          );
 
-        // Move radius point to maintain the same radius vector from the new center
-        // This preserves the circle's radius during movement
-        points[0] = newCenter;
-        points[1] = [
-          newCenter[0] + circleROIInteractionState.originalRadiusVec[0],
-          newCenter[1] + circleROIInteractionState.originalRadiusVec[1],
-          newCenter[2] + circleROIInteractionState.originalRadiusVec[2],
-        ];
-
-        // Move textbox with the annotation if present
-        const textBoxWorldPosition = annotationInstance.data?.handles?.textBox?.worldPosition;
-        if (Array.isArray(textBoxWorldPosition) && textBoxWorldPosition.length >= 3) {
-          annotationInstance.data.handles.textBox.worldPosition = [
-            textBoxWorldPosition[0] + delta[0],
-            textBoxWorldPosition[1] + delta[1],
-            textBoxWorldPosition[2] + delta[2],
+          // Move center to new position
+          const newCenter: csTypes.Point3 = [
+            circleROIInteractionState.dragStartCenter[0] + delta[0],
+            circleROIInteractionState.dragStartCenter[1] + delta[1],
+            circleROIInteractionState.dragStartCenter[2] + delta[2],
           ];
+
+          // Move radius point to maintain the same radius vector from the new center
+          // This preserves the circle's radius during movement
+          points[0] = newCenter;
+          points[1] = [
+            newCenter[0] + circleROIInteractionState.originalRadiusVec[0],
+            newCenter[1] + circleROIInteractionState.originalRadiusVec[1],
+            newCenter[2] + circleROIInteractionState.originalRadiusVec[2],
+          ];
+
+          // Move textbox with the annotation if present
+          const textBoxWorldPosition = annotationInstance.data?.handles?.textBox?.worldPosition;
+          if (Array.isArray(textBoxWorldPosition) && textBoxWorldPosition.length >= 3) {
+            annotationInstance.data.handles.textBox.worldPosition = [
+              textBoxWorldPosition[0] + delta[0],
+              textBoxWorldPosition[1] + delta[1],
+              textBoxWorldPosition[2] + delta[2],
+            ];
+          }
+        } else if (circleROIInteractionState.isResizing) {
+          // Resizing the circle
+          const center = circleROIInteractionState.dragStartCenter;
+
+          // Calculate vector from center to current mouse position
+          const currentVec = vec3.subtract(vec3.create(), currentWorldPos, center);
+          const newRadius = vec3.length(currentVec);
+
+          // Only resize if the new radius is valid (greater than a small threshold)
+          if (newRadius > 0.1) {
+            // Normalize the vector to get direction, then scale by new radius
+            vec3.normalize(currentVec, currentVec);
+            vec3.scale(currentVec, currentVec, newRadius);
+
+            // Update the radius point
+            points[0] = [...center] as csTypes.Point3;
+            points[1] = [
+              center[0] + currentVec[0],
+              center[1] + currentVec[1],
+              center[2] + currentVec[2],
+            ] as csTypes.Point3;
+          }
         }
 
         annotationInstance.metadata.referencedImageId =
