@@ -634,10 +634,7 @@ function commandsModule({
 
       if (measurement.toolName !== 'CustomProbe') {
         // Fall back to regular jump for non-CustomProbe measurements
-        measurementService.jumpToMeasurement(
-          viewportGridService.getActiveViewportId(),
-          measurementUID
-        );
+        measurementService.jumpToMeasurement(viewportGridService.getActiveViewportId(), measurementUID);
         return;
       }
 
@@ -645,10 +642,7 @@ function commandsModule({
         // Fallback to regular jump for 2D images that lack 3D positioning info
         // This handles X-ray and other 2D modalities that don't have FrameOfReferenceUID
         if (measurement.referencedImageId || measurement.metadata?.referencedImageId) {
-          measurementService.jumpToMeasurement(
-            viewportGridService.getActiveViewportId(),
-            measurementUID
-          );
+          measurementService.jumpToMeasurement(viewportGridService.getActiveViewportId(), measurementUID);
           return;
         }
         console.warn('CustomProbe measurement missing world position or FrameOfReferenceUID');
@@ -681,54 +675,6 @@ function commandsModule({
       } else {
         measurementService.remove(uid);
       }
-    },
-
-    /**
-     * Selects the next hidden annotation to be placed.
-     * This cycles through hidden (invisible) measurements and queues them for relocation.
-     */
-    selectNextHiddenMeasurement: () => {
-      // Get all measurements
-      const allMeasurements = measurementService.getMeasurements();
-
-      // Filter for hidden measurements (isVisible === false)
-      const hiddenMeasurements = allMeasurements.filter(m => m.isVisible === false);
-
-      if (hiddenMeasurements.length === 0) {
-        console.log('No hidden measurements available');
-        return;
-      }
-
-      // Find currently selected hidden measurement
-      const currentSelectedIndex = hiddenMeasurements.findIndex(m => m.isSelected);
-
-      // Get next hidden measurement (cycle back to 0 if at the end)
-      const nextIndex =
-        currentSelectedIndex >= 0 ? (currentSelectedIndex + 1) % hiddenMeasurements.length : 0;
-
-      const nextMeasurement = hiddenMeasurements[nextIndex];
-
-      // Deselect all currently selected measurements
-      for (const m of allMeasurements) {
-        if (m.isSelected) {
-          measurementService.setMeasurementSelected(m.uid, false);
-        }
-      }
-
-      // Select the next hidden measurement
-      measurementService.setMeasurementSelected(nextMeasurement.uid, true);
-
-      // Queue it for relocation (same as clicking on it in the panel)
-      const command =
-        nextMeasurement.toolName === 'CustomProbe' ? 'jumpToCustomProbe' : 'jumpToMeasurement';
-      commandsManager.run(command, {
-        uid: nextMeasurement.uid,
-        relocateOnNextClick: true,
-      });
-
-      console.log(
-        `Selected hidden measurement ${nextIndex + 1}/${hiddenMeasurements.length}: ${nextMeasurement.label || nextMeasurement.toolName}`
-      );
     },
 
     toggleLockMeasurement: ({ uid }) => {
@@ -778,8 +724,7 @@ function commandsModule({
 
       // Get SR series and instance number (create new series for download)
       // Import dynamically to avoid circular dependencies
-      const getSRSeriesAndInstanceNumber =
-        require('@ohif/extension-default/src/utils/getSRSeriesAndInstanceNumber').getSRSeriesAndInstanceNumber;
+      const getSRSeriesAndInstanceNumber = require('@ohif/extension-default/src/utils/getSRSeriesAndInstanceNumber').getSRSeriesAndInstanceNumber;
       const { SeriesNumber, InstanceNumber } = getSRSeriesAndInstanceNumber({
         displaySetService,
       });
@@ -2195,9 +2140,6 @@ function commandsModule({
     },
     removeMeasurement: {
       commandFn: actions.removeMeasurement,
-    },
-    selectNextHiddenMeasurement: {
-      commandFn: actions.selectNextHiddenMeasurement,
     },
     toggleLockMeasurement: {
       commandFn: actions.toggleLockMeasurement,

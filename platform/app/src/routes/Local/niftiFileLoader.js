@@ -39,15 +39,9 @@ function generateUID() {
 function rasToLps(rasMatrix) {
   // RAS to LPS conversion: flip X and Y
   return [
-    -rasMatrix[0],
-    -rasMatrix[1],
-    rasMatrix[2],
-    -rasMatrix[3],
-    -rasMatrix[4],
-    rasMatrix[5],
-    -rasMatrix[6],
-    -rasMatrix[7],
-    rasMatrix[8],
+    -rasMatrix[0], -rasMatrix[1], rasMatrix[2],
+    -rasMatrix[3], -rasMatrix[4], rasMatrix[5],
+    -rasMatrix[6], -rasMatrix[7], rasMatrix[8],
   ];
 }
 
@@ -89,24 +83,9 @@ function extractAffineInfo(niftiHeader) {
   // Prefer sform if available, otherwise use qform
   if (sform_code > 0) {
     affine = [
-      [
-        niftiHeader.affine[0][0],
-        niftiHeader.affine[0][1],
-        niftiHeader.affine[0][2],
-        niftiHeader.affine[0][3],
-      ],
-      [
-        niftiHeader.affine[1][0],
-        niftiHeader.affine[1][1],
-        niftiHeader.affine[1][2],
-        niftiHeader.affine[1][3],
-      ],
-      [
-        niftiHeader.affine[2][0],
-        niftiHeader.affine[2][1],
-        niftiHeader.affine[2][2],
-        niftiHeader.affine[2][3],
-      ],
+      [niftiHeader.affine[0][0], niftiHeader.affine[0][1], niftiHeader.affine[0][2], niftiHeader.affine[0][3]],
+      [niftiHeader.affine[1][0], niftiHeader.affine[1][1], niftiHeader.affine[1][2], niftiHeader.affine[1][3]],
+      [niftiHeader.affine[2][0], niftiHeader.affine[2][1], niftiHeader.affine[2][2], niftiHeader.affine[2][3]],
       [0, 0, 0, 1],
     ];
   } else if (qform_code > 0) {
@@ -132,15 +111,9 @@ function extractAffineInfo(niftiHeader) {
 
   // Normalize to get direction cosines
   const direction = [
-    affine[0][0] / spacing[0],
-    affine[1][0] / spacing[0],
-    affine[2][0] / spacing[0],
-    affine[0][1] / spacing[1],
-    affine[1][1] / spacing[1],
-    affine[2][1] / spacing[1],
-    affine[0][2] / spacing[2],
-    affine[1][2] / spacing[2],
-    affine[2][2] / spacing[2],
+    affine[0][0] / spacing[0], affine[1][0] / spacing[0], affine[2][0] / spacing[0],
+    affine[0][1] / spacing[1], affine[1][1] / spacing[1], affine[2][1] / spacing[1],
+    affine[0][2] / spacing[2], affine[1][2] / spacing[2], affine[2][2] / spacing[2],
   ];
 
   // Origin is the last column of the affine (translation)
@@ -231,12 +204,8 @@ async function processNiftiFile(file) {
       rows,
       columns,
       imageOrientationPatient: [
-        direction[0],
-        direction[1],
-        direction[2],
-        direction[3],
-        direction[4],
-        direction[5],
+        direction[0], direction[1], direction[2],
+        direction[3], direction[4], direction[5],
       ],
       rowCosines: [direction[0], direction[1], direction[2]],
       columnCosines: [direction[3], direction[4], direction[5]],
@@ -257,12 +226,7 @@ async function processNiftiFile(file) {
       bitsAllocated: ArrayConstructor.BYTES_PER_ELEMENT * 8,
       bitsStored: ArrayConstructor.BYTES_PER_ELEMENT * 8,
       highBit: ArrayConstructor.BYTES_PER_ELEMENT * 8 - 1,
-      pixelRepresentation:
-        ArrayConstructor === Uint8Array ||
-        ArrayConstructor === Uint16Array ||
-        ArrayConstructor === Uint32Array
-          ? 0
-          : 1,
+      pixelRepresentation: ArrayConstructor === Uint8Array || ArrayConstructor === Uint16Array || ArrayConstructor === Uint32Array ? 0 : 1,
       planarConfiguration: 0,
       pixelAspectRatio: '1\\1',
     };
@@ -329,10 +293,9 @@ function localNiftiImageLoader(imageId) {
     };
   }
 
-  const { scalarData, rows, columns, numSlices, spacing, direction, origin, ArrayConstructor } =
-    volumeData;
+  const { scalarData, rows, columns, numSlices, spacing, direction, origin, ArrayConstructor } = volumeData;
 
-  const promise = new Promise(resolve => {
+  const promise = new Promise((resolve) => {
     const numVoxels = rows * columns;
     const sliceOffset = numVoxels * frameIndex;
 
@@ -344,12 +307,8 @@ function localNiftiImageLoader(imageId) {
     let minPixelValue = pixelData[0];
     let maxPixelValue = pixelData[0];
     for (let i = 1; i < pixelData.length; i++) {
-      if (pixelData[i] < minPixelValue) {
-        minPixelValue = pixelData[i];
-      }
-      if (pixelData[i] > maxPixelValue) {
-        maxPixelValue = pixelData[i];
-      }
+      if (pixelData[i] < minPixelValue) minPixelValue = pixelData[i];
+      if (pixelData[i] > maxPixelValue) maxPixelValue = pixelData[i];
     }
 
     // Create voxel manager
@@ -394,9 +353,7 @@ function localNiftiImageLoader(imageId) {
 let loaderRegistered = false;
 
 function ensureLoaderRegistered() {
-  if (loaderRegistered) {
-    return;
-  }
+  if (loaderRegistered) return;
 
   try {
     cornerstone.imageLoader.registerImageLoader('nifti', localNiftiImageLoader);
@@ -484,12 +441,8 @@ async function addNiftiToMetadataStore(file) {
       NumberOfFrames: 1,
       ImagePositionPatient,
       ImageOrientationPatient: [
-        direction[0],
-        direction[1],
-        direction[2],
-        direction[3],
-        direction[4],
-        direction[5],
+        direction[0], direction[1], direction[2],
+        direction[3], direction[4], direction[5],
       ],
       PixelSpacing: [spacing[0], spacing[1]],
       SliceThickness: spacing[2],

@@ -139,12 +139,6 @@ const bindings = [
     keys: ['esc'],
   },
   {
-    commandName: 'selectNextHiddenMeasurement',
-    label: 'Select Next Hidden Measurement',
-    keys: ['m'],
-    isEditable: true,
-  },
-  {
     commandName: 'setWindowLevelPreset',
     commandOptions: { presetName: 'ct-soft-tissue', presetIndex: 0 },
     label: 'W/L Preset 1',
