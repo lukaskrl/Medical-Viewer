@@ -63,6 +63,7 @@ export function Colormap({ viewportId }: { viewportId?: string } = {}): ReactEle
                 <TabsTrigger
                   key={ds.displaySetInstanceUID}
                   value={ds.displaySetInstanceUID}
+                  className="data-[state=active]:bg-[#5A1515]/30 data-[state=active]:text-[#ef4444]"
                 >
                   {ds.Modality}
                 </TabsTrigger>

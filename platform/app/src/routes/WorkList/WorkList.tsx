@@ -6,15 +6,16 @@ import moment from 'moment';
 import qs from 'query-string';
 import isEqual from 'lodash.isequal';
 import { useTranslation } from 'react-i18next';
+import Dropzone from 'react-dropzone';
 //
 import filtersMeta from './filtersMeta.js';
+import filesToStudies from '../Local/filesToStudies';
 import { useAppConfig } from '@state';
 import { useDebounce, useSearchParams } from '../../hooks';
 import { utils, Types as coreTypes } from '@ohif/core';
 
 import {
   StudyListExpandedRow,
-  EmptyStudies,
   StudyListTable,
   StudyListPagination,
   StudyListFilter,
@@ -81,6 +82,7 @@ function WorkList({
     ...defaultFilterValues,
     ...sessionQueryFilterValues,
   });
+  const [dropInitiated, setDropInitiated] = useState(false);
 
   const debouncedFilterValues = useDebounce(filterValues, 200);
   const { resultsPerPage, pageNumber, sortBy, sortDirection } = filterValues;
@@ -519,9 +521,10 @@ function WorkList({
     'ui.loadingIndicatorProgress'
   );
   const DicomUploadComponent = customizationService.getCustomization('dicomUploadComponent');
+  const isDicomUploadEnabled = Boolean(dataSource.getConfig?.()?.dicomUploadEnabled);
 
   const uploadProps =
-    DicomUploadComponent && dataSource.getConfig()?.dicomUploadEnabled
+    DicomUploadComponent && isDicomUploadEnabled
       ? {
           title: 'Upload files',
           containerClassName: DicomUploadComponent?.containerClassName,
@@ -551,6 +554,62 @@ function WorkList({
     'ohif.dataSourceConfigurationComponent'
   );
 
+  const onStudyListDrop = async acceptedFiles => {
+    if (!acceptedFiles?.length) {
+      return;
+    }
+
+    setDropInitiated(true);
+
+    try {
+      const studies = await filesToStudies(acceptedFiles, dataSource, servicesManager);
+
+      if (!studies?.length) {
+        return;
+      }
+
+      const query = new URLSearchParams();
+      studies.forEach(id => query.append('StudyInstanceUIDs', id));
+      query.append('datasources', 'dicomlocal');
+      preserveQueryParameters(query);
+
+      navigate(`/?${decodeURIComponent(query.toString())}`);
+    } finally {
+      setDropInitiated(false);
+    }
+  };
+
+  const renderDropOffWindow = isDragActive => {
+    const borderPatternClass = isDragActive
+      ? 'bg-[repeating-linear-gradient(45deg,#5a1515_0_8px,#210808_8px_16px)]'
+      : 'bg-transparent';
+
+    return (
+      <div className="relative flex min-h-0 flex-1 px-4 pb-8 pt-6">
+        <div
+          className={classnames(
+            'h-full w-full rounded-2xl p-[2px] transition-colors duration-150',
+            borderPatternClass
+          )}
+        >
+          <div className="flex h-full min-h-[320px] items-center justify-center rounded-[15px] border border-transparent bg-black/90 px-6 py-8 text-center">
+            <div className="flex flex-col items-center justify-center gap-4">
+              <Icons.Magnifier className="text-primary-light" />
+              <div className="space-y-2">
+                <p className="text-base font-semibold uppercase tracking-[0.2em] text-red-200/80">
+                  drop studies here
+                </p>
+                <p className="text-sm text-neutral-300">
+                  Drag and drop DICOM files or folders anywhere on the study list.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-screen flex-col bg-black">
       <Header
@@ -562,52 +621,72 @@ function WorkList({
       />
       <Onboarding />
       <InvestigationalUseDialog dialogConfiguration={appConfig?.investigationalUseDialog} />
-      <div className="flex h-full flex-col overflow-y-auto">
-        <ScrollArea>
-          <div className="flex grow flex-col">
-            <StudyListFilter
-              numOfStudies={pageNumber * resultsPerPage > 100 ? 101 : numOfStudies}
-              filtersMeta={filtersMeta}
-              filterValues={{ ...filterValues, ...defaultSortValues }}
-              onChange={setFilterValues}
-              clearFilters={() => setFilterValues(defaultFilterValues)}
-              isFiltering={isFiltering(filterValues, defaultFilterValues)}
-              onUploadClick={uploadProps ? () => show(uploadProps) : undefined}
-              getDataSourceConfigurationComponent={
-                dataSourceConfigurationComponent
-                  ? () => dataSourceConfigurationComponent()
-                  : undefined
-              }
-            />
-          </div>
-          {hasStudies ? (
-            <div className="flex grow flex-col">
-              <StudyListTable
-                tableDataSource={tableDataSource.slice(offset, offsetAndTake)}
-                numOfStudies={numOfStudies}
-                querying={querying}
-                filtersMeta={filtersMeta}
-              />
-              <div className="grow">
-                <StudyListPagination
-                  onChangePage={onPageNumberChange}
-                  onChangePerPage={onResultsPerPageChange}
-                  currentPage={pageNumber}
-                  perPage={resultsPerPage}
+      <Dropzone
+        onDrop={onStudyListDrop}
+        noClick
+      >
+        {({ getRootProps, isDragActive }) => (
+          <div
+            {...getRootProps()}
+            className={classnames('flex h-full min-h-0 flex-col overflow-y-auto transition duration-150')}
+          >
+            <ScrollArea>
+              <div className="flex min-h-full flex-1 flex-col">
+                <div className="flex flex-col">
+                <StudyListFilter
+                  numOfStudies={pageNumber * resultsPerPage > 100 ? 101 : numOfStudies}
+                  filtersMeta={filtersMeta}
+                  filterValues={{ ...filterValues, ...defaultSortValues }}
+                  onChange={setFilterValues}
+                  clearFilters={() => setFilterValues(defaultFilterValues)}
+                  isFiltering={isFiltering(filterValues, defaultFilterValues)}
+                  onUploadClick={() => {
+                    if (uploadProps) {
+                      show(uploadProps);
+                      return;
+                    }
+
+                    navigate('/local');
+                  }}
+                  getDataSourceConfigurationComponent={
+                    dataSourceConfigurationComponent
+                      ? () => dataSourceConfigurationComponent()
+                      : undefined
+                  }
                 />
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center pt-48">
-              {appConfig.showLoadingIndicator && isLoadingData ? (
-                <LoadingIndicatorProgress className={'h-full w-full bg-black'} />
-              ) : (
-                <EmptyStudies />
-              )}
+                </div>
+                  {hasStudies ? (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                      <StudyListTable
+                        tableDataSource={tableDataSource.slice(offset, offsetAndTake)}
+                        numOfStudies={numOfStudies}
+                        querying={querying}
+                        filtersMeta={filtersMeta}
+                      />
+                      <div className="grow">
+                        <StudyListPagination
+                          onChangePage={onPageNumberChange}
+                          onChangePerPage={onResultsPerPageChange}
+                          currentPage={pageNumber}
+                          perPage={resultsPerPage}
+                        />
+                      </div>
+                      {renderDropOffWindow(isDragActive)}
+                    </div>
+                  ) : (
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      {appConfig.showLoadingIndicator && (isLoadingData || dropInitiated) ? (
+                        <LoadingIndicatorProgress className={'h-full w-full bg-black'} />
+                      ) : (
+                        renderDropOffWindow(isDragActive)
+                      )}
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
             </div>
           )}
-        </ScrollArea>
-      </div>
+        </Dropzone>
     </div>
   );
 }

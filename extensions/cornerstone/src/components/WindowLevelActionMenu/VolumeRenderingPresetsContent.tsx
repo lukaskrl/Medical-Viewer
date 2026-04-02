@@ -60,8 +60,8 @@ export function VolumeRenderingPresetsContent({ presets, viewportId, hide }: Pro
                 name={preset.name}
                 className={
                   selectedPreset?.name === preset.name
-                    ? 'border-highlight h-[75px] w-[95px] max-w-none rounded border-2'
-                    : 'hover:border-highlight h-[75px] w-[95px] max-w-none rounded border-2 border-background'
+                    ? 'h-[75px] w-[95px] max-w-none rounded border-2 border-[#5A1515]'
+                    : 'h-[75px] w-[95px] max-w-none rounded border-2 border-background hover:border-[#5A1515]'
                 }
               />
               <label className="text-muted-foreground mt-1 text-left text-xs">
