@@ -3,7 +3,24 @@
 window.config = {
   name: 'config/default.js',
   routerBasename: null,
-  // whiteLabeling: {},
+  whiteLabeling: {
+    createLogoComponentFn: function (React) {
+      return React.createElement(
+        'a',
+        {
+          target: '_self',
+          rel: 'noopener noreferrer',
+          className: 'text-purple-600 line-through',
+          href: '_X___IDC__LOGO__LINK___Y_',
+        },
+        React.createElement('img', {
+          src: '/logo.png',
+          className: 'h-10 w-auto',
+          
+        })
+      );
+    },
+  },
   extensions: [],
   modes: [],
   customizationService: {},
@@ -282,23 +299,6 @@ window.config = {
   //     labelColor: [255, 255, 0, 1], // must be an array
   //     hoverTimeout: 1,
   //     background: 'rgba(100, 100, 100, 0.5)', // can be any valid css color
-  //   },
-  // },
-  // whiteLabeling: {
-  //   createLogoComponentFn: function (React) {
-  //     return React.createElement(
-  //       'a',
-  //       {
-  //         target: '_self',
-  //         rel: 'noopener noreferrer',
-  //         className: 'text-purple-600 line-through',
-  //         href: '_X___IDC__LOGO__LINK___Y_',
-  //       },
-  //       React.createElement('img', {
-  //         src: './Logo.svg',
-  //         className: 'w-14 h-14',
-  //       })
-  //     );
   //   },
   // },
 };
