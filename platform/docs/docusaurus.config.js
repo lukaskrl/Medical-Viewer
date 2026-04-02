@@ -147,8 +147,8 @@ module.exports = {
         hideOnScroll: false,
         logo: {
           alt: 'OHIF Logo',
-          src: 'img/ohif-logo-light.svg',
-          srcDark: 'img/ohif-logo.svg',
+          src: 'img/logo.png',
+          srcDark: 'img/logo.png',
         },
         items: [
           {

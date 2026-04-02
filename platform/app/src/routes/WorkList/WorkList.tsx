@@ -450,7 +450,7 @@ function WorkList({
                         isValidMode ? (
                           <Icons.LaunchArrow className="!h-[20px] !w-[20px] text-black" />
                         ) : (
-                          <Icons.LaunchInfo className="!h-[20px] !w-[20px] text-black" />
+                          <Icons.LaunchInfo className="!h-[20px] !w-[20px] text-[hsl(var(--neutral))]" />
                         )
                       }
                       onClick={() => {}}
