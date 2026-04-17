@@ -88,6 +88,7 @@ function getMappedAnnotations(annotation, displaySetService) {
   const { metadata, data } = annotation;
   const { cachedStats } = data;
   const { referencedImageId } = metadata;
+  const point = data?.handles?.points?.[0];
   const targets = Object.keys(cachedStats);
 
   if (!targets.length) {
@@ -117,6 +118,7 @@ function getMappedAnnotations(annotation, displaySetService) {
       frameNumber,
       unit,
       value,
+      point,
     });
   });
 
@@ -168,7 +170,7 @@ function getDisplayText(mappedAnnotations, displaySet, customizationService) {
     return displayText;
   }
 
-  const { value, unit, SeriesNumber, SOPInstanceUID, frameNumber } = mappedAnnotations[0];
+  const { value, unit, SeriesNumber, SOPInstanceUID, frameNumber, point } = mappedAnnotations[0];
 
   const instance = displaySet.instances.find(image => image.SOPInstanceUID === SOPInstanceUID);
 
@@ -180,10 +182,18 @@ function getDisplayText(mappedAnnotations, displaySet, customizationService) {
   const instanceText = InstanceNumber ? ` I: ${InstanceNumber}` : '';
   const frameText = displaySet.isMultiFrame ? ` F: ${frameNumber}` : '';
 
+  const coordinateText =
+    Array.isArray(point) && point.length === 3
+      ? `(${utils.roundNumber(point[0], 2)}, ${utils.roundNumber(point[1], 2)}, ${utils.roundNumber(
+          point[2],
+          2
+        )})`
+      : '';
+
   if (value !== undefined) {
     const roundedValue = utils.roundNumber(value, 2);
     displayText.primary.push(`${roundedValue} ${getDisplayUnit(unit)}`);
-    displayText.secondary.push(`S: ${SeriesNumber}${instanceText}${frameText}`);
+    displayText.secondary.push(coordinateText || `S: ${SeriesNumber}${instanceText}${frameText}`);
   }
 
   return displayText;

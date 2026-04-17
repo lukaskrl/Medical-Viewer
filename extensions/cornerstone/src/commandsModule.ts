@@ -21,6 +21,7 @@ import {
   LogicalOperation,
   OperatorOptions,
 } from '@cornerstonejs/tools/utilities/contourSegmentation/logicalOperators';
+import { triggerAnnotationRenderForViewportIds } from '@cornerstonejs/tools/utilities';
 import * as cornerstoneTools from '@cornerstonejs/tools';
 import * as labelmapInterpolation from '@cornerstonejs/labelmap-interpolation';
 import { ONNXSegmentationController } from '@cornerstonejs/ai';
@@ -204,10 +205,136 @@ function commandsModule({
     };
   };
 
+  const getMeasurementWorldPoint = measurement => {
+    const pointMeasurementPoint = measurement?.points?.[0];
+    if (pointMeasurementPoint?.length === 3) {
+      return pointMeasurementPoint;
+    }
+
+    const handlePoint = measurement?.data?.handles?.points?.[0];
+    if (handlePoint?.length === 3) {
+      return handlePoint;
+    }
+
+    const metadataPoint = measurement?.metadata?.planeRestriction?.point;
+    if (metadataPoint?.length === 3) {
+      return metadataPoint;
+    }
+
+    const { center } = getCenterExtent(measurement);
+    return center;
+  };
+
+  const jumpToClosestSliceOnCurrentOrientation = (viewport, worldPoint) => {
+    if (!worldPoint?.length || worldPoint.length < 3) {
+      return false;
+    }
+
+    if (viewport instanceof BaseVolumeViewport) {
+      const camera = viewport.getCamera();
+      const { focalPoint, position, viewPlaneNormal } = camera || {};
+
+      if (!focalPoint || !position || !viewPlaneNormal) {
+        return false;
+      }
+
+      const normal = vec3.normalize(vec3.create(), viewPlaneNormal as any);
+      const focalToTarget = vec3.sub(vec3.create(), worldPoint as any, focalPoint as any);
+      const deltaAlongNormal = vec3.dot(focalToTarget, normal);
+
+      const newFocalPoint = vec3.scaleAndAdd(vec3.create(), focalPoint as any, normal, deltaAlongNormal);
+      const cameraOffset = vec3.sub(vec3.create(), position as any, focalPoint as any);
+      const newPosition = vec3.add(vec3.create(), newFocalPoint, cameraOffset);
+
+      viewport.setCamera({
+        focalPoint: newFocalPoint as any,
+        position: newPosition as any,
+      });
+
+      return true;
+    }
+
+    const viewportWithReference = viewport as unknown as {
+      getViewReference?: (options?: Record<string, unknown>) => Record<string, unknown>;
+      setViewReference?: (viewReference: Record<string, unknown>) => void;
+    };
+
+    const targetViewReference = viewportWithReference.getViewReference?.({ points: [worldPoint] });
+    if (targetViewReference && typeof viewportWithReference.setViewReference === 'function') {
+      viewportWithReference.setViewReference(targetViewReference);
+      return true;
+    }
+
+    return false;
+  };
+
+  const navigateViewportToMeasurement = (
+    viewportId,
+    measurement,
+    metadata,
+    { preserveOrientation = false, forceCenter = false, allowRecenter = true } = {}
+  ) => {
+    const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+
+    if (!viewport) {
+      return false;
+    }
+
+    if (!preserveOrientation) {
+      viewport.setViewReference(metadata);
+    } else {
+      const measurementWorldPoint = getMeasurementWorldPoint(measurement);
+      jumpToClosestSliceOnCurrentOrientation(viewport, measurementWorldPoint);
+    }
+
+    if (allowRecenter && (forceCenter || !isMeasurementWithinViewport(viewport, measurement))) {
+      const camera = viewport.getCamera();
+      const { focalPoint: cameraFocalPoint, position: cameraPosition } = camera;
+      const { center, extent } = getCenterExtent(measurement);
+      const position = vec3.sub(vec3.create(), cameraPosition, cameraFocalPoint);
+      vec3.add(position, position, center);
+      viewport.setCamera({ focalPoint: center, position: position as any });
+
+      const measurementSize = vec3.dist(extent.min, extent.max);
+      if (measurementSize > camera.parallelScale) {
+        const scaleFactor = measurementSize / camera.parallelScale;
+        viewport.setZoom(viewport.getZoom() / scaleFactor);
+      }
+
+    }
+
+    viewport.render();
+
+    return true;
+  };
+
   const actions = {
-    jumpToMeasurementViewport: ({ annotationUID, measurement }) => {
+    jumpToMeasurementViewport: ({ annotationUID, measurement, excludeViewportId }) => {
       cornerstoneTools.annotation.selection.setAnnotationSelected(annotationUID, true);
       const { metadata } = measurement;
+
+      const isProbeMeasurement =
+        measurement?.toolName === toolNames.Probe || metadata?.toolName === toolNames.Probe;
+
+      if (isProbeMeasurement) {
+        const matchingViewportIds = cornerstoneViewportService
+          .getViewportIds()
+          .filter(viewportId => viewportId !== excludeViewportId);
+
+        if (matchingViewportIds.length) {
+          matchingViewportIds.forEach(viewportId => {
+            navigateViewportToMeasurement(viewportId, measurement, metadata, {
+              preserveOrientation: true,
+              forceCenter: false,
+              allowRecenter: false,
+            });
+          });
+
+          triggerAnnotationRenderForViewportIds(matchingViewportIds);
+
+          return;
+        }
+      }
 
       const activeViewportId = viewportGridService.getActiveViewportId();
       // Finds the best viewport to jump to for showing the annotation view reference
@@ -217,29 +344,7 @@ function commandsModule({
         metadata
       );
       if (viewportId) {
-        const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
-        viewport.setViewReference(metadata);
-        viewport.render();
-
-        /**
-         * If the measurement is not visible inside the current viewport,
-         * we need to move the camera to the measurement.
-         */
-        if (!isMeasurementWithinViewport(viewport, measurement)) {
-          const camera = viewport.getCamera();
-          const { focalPoint: cameraFocalPoint, position: cameraPosition } = camera;
-          const { center, extent } = getCenterExtent(measurement);
-          const position = vec3.sub(vec3.create(), cameraPosition, cameraFocalPoint);
-          vec3.add(position, position, center);
-          viewport.setCamera({ focalPoint: center, position: position as any });
-          /** Zoom out if the measurement is too large */
-          const measurementSize = vec3.dist(extent.min, extent.max);
-          if (measurementSize > camera.parallelScale) {
-            const scaleFactor = measurementSize / camera.parallelScale;
-            viewport.setZoom(viewport.getZoom() / scaleFactor);
-          }
-          viewport.render();
-        }
+        navigateViewportToMeasurement(viewportId, measurement, metadata);
 
         return;
       }

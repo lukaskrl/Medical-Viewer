@@ -211,6 +211,7 @@ const connectToolsToMeasurementService = ({
     displaySetService,
     cornerstoneViewportService,
     customizationService,
+    viewportGridService,
   } = servicesManager.services;
   const csTools3DVer1MeasurementSource = initMeasurementService(
     measurementService,
@@ -253,6 +254,10 @@ const connectToolsToMeasurementService = ({
         // in the future
         annotationAddedEventDetail.uid = annotationUID;
         annotationToMeasurement(toolName, annotationAddedEventDetail);
+
+        if (toolName === toolNames.Probe && csToolsEvent.type === completedEvt) {
+          measurementService.jumpToMeasurement(viewportGridService.getActiveViewportId(), annotationUID);
+        }
       }
     } catch (error) {
       console.warn('Failed to add measurement:', error);
@@ -278,6 +283,18 @@ const connectToolsToMeasurementService = ({
       annotationModifiedEventDetail.uid = annotationUID;
       // Passing true to indicate this is an update and NOT a annotation (start) completion.
       annotationToMeasurement(toolName, annotationModifiedEventDetail, true);
+
+      if (toolName === toolNames.Probe) {
+        const updatedMeasurement = measurementService.getMeasurement(annotationUID);
+
+        if (updatedMeasurement) {
+          commandsManager.run('jumpToMeasurementViewport', {
+            annotationUID,
+            measurement: updatedMeasurement,
+            excludeViewportId: viewportGridService.getActiveViewportId(),
+          });
+        }
+      }
     } catch (error) {
       console.warn('Failed to update measurement:', error);
     }

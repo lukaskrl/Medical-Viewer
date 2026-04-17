@@ -1,4 +1,5 @@
 import {
+  AnnotationDisplayTool,
   PanTool,
   WindowLevelTool,
   SegmentBidirectionalTool,
@@ -46,13 +47,109 @@ import {
   SplineContourSegmentationTool,
   LabelMapEditWithContourTool,
 } from '@cornerstonejs/tools';
+import { getEnabledElement, VolumeViewport, utilities as csUtils } from '@cornerstonejs/core';
 import { LabelmapSlicePropagationTool, MarkerLabelmapTool } from '@cornerstonejs/ai';
 import * as polySeg from '@cornerstonejs/polymorphic-segmentation';
 
 import CalibrationLineTool from './tools/CalibrationLineTool';
 import ImageOverlayViewerTool from './tools/ImageOverlayViewerTool';
 
-export default function initCornerstoneTools(configuration = {}) {
+const PROBE_TOOL_NAMES = new Set([ProbeTool.toolName, DragProbeTool.toolName]);
+const CLOSEST_SLICE_EPSILON_MM = 1e-3;
+let isProbeNearPlanePatched = false;
+
+function patchProbeNearPlaneVisibility() {
+  if (isProbeNearPlanePatched) {
+    return;
+  }
+
+  const originalFilter = AnnotationDisplayTool.prototype.filterInteractableAnnotationsForElement;
+
+  /**
+    * @param {HTMLDivElement} element
+   * @param {Array<any>} annotations
+   */
+  AnnotationDisplayTool.prototype.filterInteractableAnnotationsForElement = function (
+    element,
+    annotations
+  ) {
+    const filtered = originalFilter.call(this, element, annotations);
+
+    if (!annotations?.length) {
+      return filtered;
+    }
+
+    const enabledElement = getEnabledElement(element);
+    if (!enabledElement?.viewport) {
+      return filtered;
+    }
+
+    const { viewport } = enabledElement;
+
+    if (!(viewport instanceof VolumeViewport)) {
+      return filtered;
+    }
+
+    const camera = viewport.getCamera?.();
+    const focalPoint = camera?.focalPoint;
+    const viewPlaneNormal = camera?.viewPlaneNormal;
+
+    if (!focalPoint || !viewPlaneNormal) {
+      return filtered;
+    }
+
+    const { spacingInNormalDirection } = csUtils.getTargetVolumeAndSpacingInNormalDir(
+      viewport,
+      camera
+    );
+
+    if (!Number.isFinite(spacingInNormalDirection) || spacingInNormalDirection <= 0) {
+      return filtered;
+    }
+
+    // Keep Probe visible only on the closest slice plane for this viewport.
+    const tolerance = Math.max(spacingInNormalDirection / 2 - CLOSEST_SLICE_EPSILON_MM, 0);
+    const result = [...filtered];
+    const existingAnnotationUIDs = new Set(filtered.map(annotation => annotation.annotationUID));
+
+    for (const annotation of annotations) {
+      if (!annotation?.isVisible || existingAnnotationUIDs.has(annotation.annotationUID)) {
+        continue;
+      }
+
+      if (!PROBE_TOOL_NAMES.has(annotation?.metadata?.toolName)) {
+        continue;
+      }
+
+      const handlePoint = annotation?.data?.handles?.points?.[0];
+      const restrictedPoint = annotation?.metadata?.planeRestriction?.point;
+      const point = handlePoint ?? restrictedPoint;
+
+      if (!point || point.length < 3) {
+        continue;
+      }
+
+      const distance = Math.abs(
+        (focalPoint[0] - point[0]) * viewPlaneNormal[0] +
+          (focalPoint[1] - point[1]) * viewPlaneNormal[1] +
+          (focalPoint[2] - point[2]) * viewPlaneNormal[2]
+      );
+
+      if (distance <= tolerance) {
+        result.push(annotation);
+        existingAnnotationUIDs.add(annotation.annotationUID);
+      }
+    }
+
+    return result;
+  };
+
+  isProbeNearPlanePatched = true;
+}
+
+export default function initCornerstoneTools() {
+  patchProbeNearPlaneVisibility();
+
   CrosshairsTool.isAnnotation = false;
   LabelmapSlicePropagationTool.isAnnotation = false;
   MarkerLabelmapTool.isAnnotation = false;

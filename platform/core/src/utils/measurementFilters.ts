@@ -68,6 +68,10 @@ const { POINT } = MeasurementService.VALUE_TYPES;
  * a value of type point, and having a referenced image
  */
 export function filterAdditionalFindings(dm) {
+  if (dm?.toolName === 'Probe' || dm?.toolName === 'DragProbe') {
+    return false;
+  }
+
   return dm.type === POINT && dm.referencedImageId;
 }
 
