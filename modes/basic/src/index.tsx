@@ -3,10 +3,36 @@ import { ToolbarService, utils } from '@ohif/core';
 
 import initToolGroups from './initToolGroups';
 import toolbarButtons from './toolbarButtons';
+import segmentationToolbarButtons from '../../segmentation/src/toolbarButtons';
 import { id } from './id';
 
 const { TOOLBAR_SECTIONS } = ToolbarService;
 const { structuredCloneWithFunctions } = utils;
+const labelMapSegmentationToolbarButtonIds = new Set([
+  'BrushTools',
+  'LabelMapUtilities',
+  'LabelMapTools',
+  'Brush',
+  'InterpolateLabelmap',
+  'SegmentBidirectional',
+  'RegionSegmentPlus',
+  'LabelmapSlicePropagation',
+  'MarkerLabelmap',
+  'Eraser',
+  'Threshold',
+  'Shapes',
+  'LabelMapEditWithContour',
+]);
+const labelMapSegmentationToolbarButtons = segmentationToolbarButtons.filter(segmentationButton =>
+  labelMapSegmentationToolbarButtonIds.has(segmentationButton.id)
+);
+const mergedToolbarButtons = [
+  ...toolbarButtons,
+  ...labelMapSegmentationToolbarButtons.filter(
+    segmentationButton =>
+      !toolbarButtons.some(toolbarButton => toolbarButton.id === segmentationButton.id)
+  ),
+];
 
 /**
  * Define non-imaging modalities.
@@ -15,7 +41,7 @@ const { structuredCloneWithFunctions } = utils;
  * This list used to include SM, for whole slide imaging, but this is now supported
  * by cornerstone.  Others of these may get added.
  */
-export const NON_IMAGE_MODALITIES = ['SEG', 'RTSTRUCT', 'RTPLAN', 'PR', 'SR'];
+export const NON_IMAGE_MODALITIES = ['RTSTRUCT', 'RTPLAN', 'PR', 'SR'];
 
 export const ohif = {
   layout: '@ohif/extension-default.layoutTemplateModule.viewerLayout',
@@ -147,25 +173,47 @@ export function onModeEnter({
   initToolGroups(extensionManager, toolGroupService, commandsManager);
 
   toolbarService.register(this.toolbarButtons);
+  // Keep labelmap segmentation controls available even if mode config overrides toolbarButtons.
+  toolbarService.register(labelMapSegmentationToolbarButtons);
 
   for (const [key, section] of Object.entries(this.toolbarSections)) {
     toolbarService.updateSection(key, section);
   }
 
-  if (!this.enableSegmentationEdit) {
-    customizationService.setCustomizations({
-      'panelSegmentation.disableEditing': {
-        $set: true,
-      },
-    });
-  }
+  // Ensure segmentation toolboxes/utilities are available in basic mode
+  // even when toolbarSections are overridden via mode configuration.
+  toolbarService.updateSection(toolbarService.sections.labelMapSegmentationToolbox, [
+    'LabelMapTools',
+  ]);
+  toolbarService.updateSection('LabelMapTools', [
+    'LabelmapSlicePropagation',
+    'BrushTools',
+    'MarkerLabelmap',
+    'RegionSegmentPlus',
+    'Shapes',
+    'LabelMapEditWithContour',
+  ]);
+  toolbarService.updateSection(toolbarService.sections.labelMapSegmentationUtilities, [
+    'LabelMapUtilities',
+  ]);
+  toolbarService.updateSection('LabelMapUtilities', [
+    'InterpolateLabelmap',
+    'SegmentBidirectional',
+  ]);
+  toolbarService.updateSection('BrushTools', ['Brush', 'Eraser', 'Threshold']);
+
+  customizationService.setCustomizations({
+    'panelSegmentation.disableEditing': {
+      $set: !this.enableSegmentationEdit,
+    },
+  });
 
   // // ActivatePanel event trigger for when a segmentation or measurement is added.
   // // Do not force activation so as to respect the state the user may have left the UI in.
   if (this.activatePanelTrigger) {
     this._activatePanelTriggersSubscriptions = [
       ...panelService.addActivatePanelTriggers(
-        cornerstone.segmentation,
+        cornerstone.labelMapSegmentationPanel,
         [
           {
             sourcePubSubService: segmentationService,
@@ -279,6 +327,19 @@ export const toolbarSections = {
     'WindowLevelRegion',
     'SegmentLabelTool',
   ],
+
+  [TOOLBAR_SECTIONS.labelMapSegmentationToolbox]: ['LabelMapTools'],
+  LabelMapTools: [
+    'LabelmapSlicePropagation',
+    'BrushTools',
+    'MarkerLabelmap',
+    'RegionSegmentPlus',
+    'Shapes',
+    'LabelMapEditWithContour',
+  ],
+  [TOOLBAR_SECTIONS.labelMapSegmentationUtilities]: ['LabelMapUtilities'],
+  LabelMapUtilities: ['InterpolateLabelmap', 'SegmentBidirectional'],
+  BrushTools: ['Brush', 'Eraser', 'Threshold'],
 };
 
 export const basicLayout = {
@@ -286,7 +347,7 @@ export const basicLayout = {
   props: {
     leftPanels: [ohif.thumbnailList],
     leftPanelResizable: true,
-    rightPanels: [cornerstone.segmentation, cornerstone.measurements],
+    rightPanels: [cornerstone.labelMapSegmentationPanel, cornerstone.measurements],
     rightPanelClosed: true,
     rightPanelResizable: true,
     viewports: [
@@ -365,8 +426,8 @@ export const modeInstance = {
   // general handler needs to come last.  For this case, the dicomvideo must
   // come first to remove video transfer syntax before ohif uses images
   sopClassHandlers,
-  toolbarButtons,
-  enableSegmentationEdit: false,
+  toolbarButtons: mergedToolbarButtons,
+  enableSegmentationEdit: true,
   nonModeModalities: NON_IMAGE_MODALITIES,
 };
 

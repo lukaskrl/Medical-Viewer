@@ -108,6 +108,8 @@ function createTools({ utilityModule, commandsManager }) {
       {
         toolName: toolNames.SegmentBidirectional,
       },
+      { toolName: toolNames.DragProbe },
+      { toolName: toolNames.Probe },
       {
         toolName: toolNames.SegmentSelect,
       },

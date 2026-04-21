@@ -1,3 +1,5 @@
+import { MIN_SEGMENTATION_DRAWING_RADIUS, MAX_SEGMENTATION_DRAWING_RADIUS } from './constants';
+
 const colours = {
   'viewport-0': 'rgb(200, 0, 0)',
   'viewport-1': 'rgb(200, 200, 0)',
@@ -9,6 +11,112 @@ const colorsByOrientation = {
   sagittal: 'rgb(200, 200, 0)',
   coronal: 'rgb(0, 200, 0)',
 };
+
+function getLabelMapSegmentationTools(toolNames) {
+  return [
+    {
+      toolName: toolNames.SegmentBidirectional,
+    },
+    {
+      toolName: 'CircularBrush',
+      parentTool: 'Brush',
+      configuration: {
+        activeStrategy: 'FILL_INSIDE_CIRCLE',
+        minRadius: MIN_SEGMENTATION_DRAWING_RADIUS,
+        maxRadius: MAX_SEGMENTATION_DRAWING_RADIUS,
+      },
+    },
+    {
+      toolName: toolNames.LabelmapSlicePropagation,
+    },
+    {
+      toolName: toolNames.MarkerLabelmap,
+    },
+    {
+      toolName: toolNames.RegionSegmentPlus,
+    },
+    {
+      toolName: 'CircularEraser',
+      parentTool: 'Brush',
+      configuration: {
+        activeStrategy: 'ERASE_INSIDE_CIRCLE',
+        minRadius: MIN_SEGMENTATION_DRAWING_RADIUS,
+        maxRadius: MAX_SEGMENTATION_DRAWING_RADIUS,
+      },
+    },
+    {
+      toolName: 'SphereBrush',
+      parentTool: 'Brush',
+      configuration: {
+        activeStrategy: 'FILL_INSIDE_SPHERE',
+        minRadius: MIN_SEGMENTATION_DRAWING_RADIUS,
+        maxRadius: MAX_SEGMENTATION_DRAWING_RADIUS,
+      },
+    },
+    {
+      toolName: 'SphereEraser',
+      parentTool: 'Brush',
+      configuration: {
+        activeStrategy: 'ERASE_INSIDE_SPHERE',
+        minRadius: MIN_SEGMENTATION_DRAWING_RADIUS,
+        maxRadius: MAX_SEGMENTATION_DRAWING_RADIUS,
+      },
+    },
+    {
+      toolName: 'ThresholdCircularBrush',
+      parentTool: 'Brush',
+      configuration: {
+        activeStrategy: 'THRESHOLD_INSIDE_CIRCLE',
+        minRadius: MIN_SEGMENTATION_DRAWING_RADIUS,
+        maxRadius: MAX_SEGMENTATION_DRAWING_RADIUS,
+      },
+    },
+    {
+      toolName: 'ThresholdSphereBrush',
+      parentTool: 'Brush',
+      configuration: {
+        activeStrategy: 'THRESHOLD_INSIDE_SPHERE',
+        minRadius: MIN_SEGMENTATION_DRAWING_RADIUS,
+        maxRadius: MAX_SEGMENTATION_DRAWING_RADIUS,
+      },
+    },
+    {
+      toolName: 'ThresholdCircularBrushDynamic',
+      parentTool: 'Brush',
+      configuration: {
+        activeStrategy: 'THRESHOLD_INSIDE_CIRCLE',
+        minRadius: MIN_SEGMENTATION_DRAWING_RADIUS,
+        maxRadius: MAX_SEGMENTATION_DRAWING_RADIUS,
+        threshold: {
+          isDynamic: true,
+          dynamicRadius: 3,
+        },
+      },
+    },
+    {
+      toolName: toolNames.SegmentSelect,
+    },
+    {
+      toolName: 'ThresholdSphereBrushDynamic',
+      parentTool: 'Brush',
+      configuration: {
+        activeStrategy: 'THRESHOLD_INSIDE_SPHERE',
+        minRadius: MIN_SEGMENTATION_DRAWING_RADIUS,
+        maxRadius: MAX_SEGMENTATION_DRAWING_RADIUS,
+        threshold: {
+          isDynamic: true,
+          dynamicRadius: 3,
+        },
+      },
+    },
+    {
+      toolName: toolNames.LabelMapEditWithContourTool,
+    },
+    { toolName: toolNames.CircleScissors },
+    { toolName: toolNames.RectangleScissors },
+    { toolName: toolNames.SphereScissors },
+  ];
+}
 
 function initDefaultToolGroup(extensionManager, toolGroupService, commandsManager, toolGroupId) {
   const utilityModule = extensionManager.getModuleEntry(
@@ -56,10 +164,8 @@ function initDefaultToolGroup(extensionManager, toolGroupService, commandsManage
           },
         },
       },
-      {
-        toolName: toolNames.SegmentBidirectional,
-      },
       { toolName: toolNames.Bidirectional },
+      ...getLabelMapSegmentationTools(toolNames),
       { toolName: toolNames.DragProbe },
       { toolName: toolNames.Probe },
       { toolName: toolNames.EllipticalROI },
@@ -70,22 +176,13 @@ function initDefaultToolGroup(extensionManager, toolGroupService, commandsManage
       { toolName: toolNames.CobbAngle },
       { toolName: toolNames.Magnify },
       { toolName: toolNames.CalibrationLine },
-      {
-        toolName: toolNames.PlanarFreehandContourSegmentation,
-        configuration: {
-          displayOnePointAsCrosshairs: true,
-        },
-      },
       { toolName: toolNames.UltrasoundDirectional },
       { toolName: toolNames.PlanarFreehandROI },
       { toolName: toolNames.SplineROI },
       { toolName: toolNames.LivewireContour },
       { toolName: toolNames.WindowLevelRegion },
     ],
-    enabled: [
-      { toolName: toolNames.ImageOverlayViewer },
-      { toolName: toolNames.ReferenceLines },
-    ],
+    enabled: [{ toolName: toolNames.ImageOverlayViewer }, { toolName: toolNames.ReferenceLines }],
     disabled: [
       {
         toolName: toolNames.AdvancedMagnify,
@@ -217,6 +314,7 @@ function initMPRToolGroup(extensionManager, toolGroupService, commandsManager) {
         },
       },
       { toolName: toolNames.Bidirectional },
+      ...getLabelMapSegmentationTools(toolNames),
       { toolName: toolNames.DragProbe },
       { toolName: toolNames.Probe },
       { toolName: toolNames.EllipticalROI },
@@ -229,12 +327,6 @@ function initMPRToolGroup(extensionManager, toolGroupService, commandsManager) {
       { toolName: toolNames.SplineROI },
       { toolName: toolNames.LivewireContour },
       { toolName: toolNames.WindowLevelRegion },
-      {
-        toolName: toolNames.PlanarFreehandContourSegmentation,
-        configuration: {
-          displayOnePointAsCrosshairs: true,
-        },
-      },
     ],
     disabled: [
       {
@@ -274,7 +366,9 @@ function initMPRToolGroup(extensionManager, toolGroupService, commandsManager) {
     ],
   };
 
-  toolGroupService.createToolGroupAndAddTools('mpr', tools);
+  const updatedTools = commandsManager.run('initializeSegmentLabelTool', { tools });
+
+  toolGroupService.createToolGroupAndAddTools('mpr', updatedTools);
 }
 function initVolume3DToolGroup(extensionManager, toolGroupService) {
   const utilityModule = extensionManager.getModuleEntry(

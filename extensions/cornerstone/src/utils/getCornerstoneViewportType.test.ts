@@ -94,4 +94,24 @@ describe('getCornerstoneViewportType', () => {
     const result = getCornerstoneViewportType('wholeslide', undefined);
     expect(result).toBe(Enums.ViewportType.WHOLE_SLIDE);
   });
+
+  it('should force ORTHOGRAPHIC when display set is reconstructible', () => {
+    const displaySets = [{ viewportType: 'stack', isReconstructable: true }] as Types.DisplaySet[];
+    const result = getCornerstoneViewportType('stack', displaySets);
+    expect(result).toBe(Enums.ViewportType.ORTHOGRAPHIC);
+  });
+
+  it('should ignore reconstructible overlay display sets for forcing', () => {
+    const displaySets = [
+      { viewportType: 'stack', isReconstructable: true, isOverlayDisplaySet: true },
+    ] as Types.DisplaySet[];
+    const result = getCornerstoneViewportType('stack', displaySets);
+    expect(result).toBe(Enums.ViewportType.STACK);
+  });
+
+  it('should keep specialized viewport types even if reconstructible', () => {
+    const displaySets = [{ viewportType: 'video', isReconstructable: true }] as Types.DisplaySet[];
+    const result = getCornerstoneViewportType('stack', displaySets);
+    expect(result).toBe(Enums.ViewportType.VIDEO);
+  });
 });

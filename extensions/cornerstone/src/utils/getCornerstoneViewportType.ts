@@ -13,8 +13,26 @@ export default function getCornerstoneViewportType(
   viewportType: string,
   displaySets?: Types.DisplaySet[]
 ): Enums.ViewportType {
+  const hasReconstructableDisplaySet =
+    displaySets?.some(
+      ds => (ds as any)?.isReconstructable && !(ds as any)?.isOverlayDisplaySet
+    ) ?? false;
+
   const lowerViewportType =
     displaySets?.[0]?.viewportType?.toLowerCase() || viewportType.toLowerCase();
+
+  // Force reconstructible series to orthographic/volume unless the viewport is
+  // explicitly a specialized non-volume type.
+  if (
+    hasReconstructableDisplaySet &&
+    lowerViewportType !== VIDEO &&
+    lowerViewportType !== WHOLESLIDE &&
+    lowerViewportType !== ECG &&
+    lowerViewportType !== VOLUME_3D
+  ) {
+    return Enums.ViewportType.ORTHOGRAPHIC;
+  }
+
   if (lowerViewportType === STACK) {
     return Enums.ViewportType.STACK;
   }

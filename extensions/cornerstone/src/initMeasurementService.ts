@@ -256,7 +256,10 @@ const connectToolsToMeasurementService = ({
         annotationToMeasurement(toolName, annotationAddedEventDetail);
 
         if (toolName === toolNames.Probe && csToolsEvent.type === completedEvt) {
-          measurementService.jumpToMeasurement(viewportGridService.getActiveViewportId(), annotationUID);
+          measurementService.jumpToMeasurement(
+            viewportGridService.getActiveViewportId(),
+            annotationUID
+          );
         }
       }
     } catch (error) {

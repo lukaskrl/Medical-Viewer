@@ -73,10 +73,13 @@ describe('promptHydrationDialog', () => {
   it('should show dialog when disableConfirmationPrompts is false for non-SR types', async () => {
     mockExtensionManager.appConfig.disableConfirmationPrompts = false;
 
-    const promise = promptHydrationDialog(defaultParameters);
+    const promise = promptHydrationDialog({
+      ...defaultParameters,
+      type: HydrationType.RTSTRUCT,
+    });
 
     expect(mockUIViewportDialogService.show).toHaveBeenCalledWith({
-      id: 'promptHydrateSEG',
+      id: 'promptHydrateRT',
       viewportId: defaultParameters.viewportId,
       type: 'info',
       message: 'Test message',
@@ -104,12 +107,20 @@ describe('promptHydrationDialog', () => {
 
     const result = await promise;
     expect(result).toBe(true);
+    expect(mockHydrateCallback).toHaveBeenCalledWith({
+      rtDisplaySet: mockDisplaySet,
+      viewportId: defaultParameters.viewportId,
+      servicesManager: mockServicesManager,
+    });
   });
 
   it('should handle CANCEL response', async () => {
     mockExtensionManager.appConfig.disableConfirmationPrompts = false;
 
-    const promise = promptHydrationDialog(defaultParameters);
+    const promise = promptHydrationDialog({
+      ...defaultParameters,
+      type: HydrationType.RTSTRUCT,
+    });
 
     const onSubmit = mockUIViewportDialogService.show.mock.calls[0][0].onSubmit;
     onSubmit(0);
@@ -122,7 +133,10 @@ describe('promptHydrationDialog', () => {
   it('should handle onOutsideClick', async () => {
     mockExtensionManager.appConfig.disableConfirmationPrompts = false;
 
-    const promise = promptHydrationDialog(defaultParameters);
+    const promise = promptHydrationDialog({
+      ...defaultParameters,
+      type: HydrationType.RTSTRUCT,
+    });
 
     const onOutsideClick = mockUIViewportDialogService.show.mock.calls[0][0].onOutsideClick;
     onOutsideClick();
@@ -135,7 +149,10 @@ describe('promptHydrationDialog', () => {
   it('should handle onKeyPress Enter', async () => {
     mockExtensionManager.appConfig.disableConfirmationPrompts = false;
 
-    const promise = promptHydrationDialog(defaultParameters);
+    const promise = promptHydrationDialog({
+      ...defaultParameters,
+      type: HydrationType.RTSTRUCT,
+    });
 
     const onKeyPress = mockUIViewportDialogService.show.mock.calls[0][0].onKeyPress;
     onKeyPress({ key: 'Enter' });
@@ -148,7 +165,10 @@ describe('promptHydrationDialog', () => {
   it('should handle onKeyPress non-Enter key', async () => {
     mockExtensionManager.appConfig.disableConfirmationPrompts = false;
 
-    const promise = promptHydrationDialog(defaultParameters);
+    const promise = promptHydrationDialog({
+      ...defaultParameters,
+      type: HydrationType.RTSTRUCT,
+    });
 
     const onKeyPress = mockUIViewportDialogService.show.mock.calls[0][0].onKeyPress;
     onKeyPress({ key: 'Escape' });
@@ -296,21 +316,17 @@ describe('promptHydrationDialog', () => {
     expect(mockPreHydrateCallback2).toHaveBeenCalled();
   });
 
-  it('should get correct customization message key for SEG type', async () => {
+  it('should not prompt for SEG type', async () => {
     mockExtensionManager.appConfig.disableConfirmationPrompts = false;
 
-    const promise = promptHydrationDialog({
+    const result = await promptHydrationDialog({
       ...defaultParameters,
       type: HydrationType.SEG,
     });
 
-    expect(mockCustomizationService.getCustomization).toHaveBeenCalledWith(
-      'viewportNotification.hydrateSEGMessage'
-    );
-
-    const onOutsideClick = mockUIViewportDialogService.show.mock.calls[0][0].onOutsideClick;
-    onOutsideClick();
-    await promise;
+    expect(mockUIViewportDialogService.show).not.toHaveBeenCalled();
+    expect(mockCustomizationService.getCustomization).not.toHaveBeenCalled();
+    expect(result).toBe(true);
   });
 
   it('should get correct customization message key for RTSTRUCT type', async () => {
@@ -357,25 +373,6 @@ describe('promptHydrationDialog', () => {
 
     expect(mockCustomizationService.getCustomization).toHaveBeenCalledWith(
       'viewportNotification.hydrateMessage'
-    );
-
-    const onOutsideClick = mockUIViewportDialogService.show.mock.calls[0][0].onOutsideClick;
-    onOutsideClick();
-    await promise;
-  });
-
-  it('should get correct dialog id for SEG type', async () => {
-    mockExtensionManager.appConfig.disableConfirmationPrompts = false;
-
-    const promise = promptHydrationDialog({
-      ...defaultParameters,
-      type: HydrationType.SEG,
-    });
-
-    expect(mockUIViewportDialogService.show).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'promptHydrateSEG',
-      })
     );
 
     const onOutsideClick = mockUIViewportDialogService.show.mock.calls[0][0].onOutsideClick;

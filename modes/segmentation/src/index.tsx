@@ -86,6 +86,7 @@ function modeFactory({ modeConfiguration }) {
         'ImageOverlayViewer',
         'StackScroll',
         'invert',
+        'Probe',
         'Cine',
         'Magnify',
         'TagBrowser',

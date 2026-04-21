@@ -76,10 +76,15 @@ function promptHydrationDialog({
   const standardMode = appConfig?.measurementTrackingMode === 'standard';
 
   return new Promise(async function (resolve, reject) {
-    // For RT and SEG, we check disableConfirmationPrompts
-    // For SR, we check if standardMode is true
+    // SR prompting follows measurement tracking mode.
+    // SEG is always auto-hydrated without a prompt.
+    // RT and other types still follow disableConfirmationPrompts.
     const shouldPrompt =
-      type === HydrationType.SR ? standardMode : !appConfig?.disableConfirmationPrompts;
+      type === HydrationType.SR
+        ? standardMode
+        : type === HydrationType.SEG
+          ? false
+          : !appConfig?.disableConfirmationPrompts;
 
     const promptResult = shouldPrompt
       ? await _askHydrate(uiViewportDialogService, customizationService, viewportId, type)

@@ -66,7 +66,7 @@ function patchProbeNearPlaneVisibility() {
   const originalFilter = AnnotationDisplayTool.prototype.filterInteractableAnnotationsForElement;
 
   /**
-    * @param {HTMLDivElement} element
+   * @param {HTMLDivElement} element
    * @param {Array<any>} annotations
    */
   AnnotationDisplayTool.prototype.filterInteractableAnnotationsForElement = function (

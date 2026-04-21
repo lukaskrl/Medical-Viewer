@@ -378,6 +378,17 @@ export const toolbarButtons: Button[] = [
     },
   },
   {
+    id: 'Probe',
+    uiType: 'ohif.toolButton',
+    props: {
+      icon: 'tool-probe',
+      label: i18n.t('Buttons:Probe'),
+      tooltip: i18n.t('Buttons:Probe'),
+      commands: setToolActiveToolbar,
+      evaluate: 'evaluate.cornerstoneTool',
+    },
+  },
+  {
     id: 'Cine',
     uiType: 'ohif.toolButton',
     props: {

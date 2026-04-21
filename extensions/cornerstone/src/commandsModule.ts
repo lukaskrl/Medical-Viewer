@@ -242,7 +242,12 @@ function commandsModule({
       const focalToTarget = vec3.sub(vec3.create(), worldPoint as any, focalPoint as any);
       const deltaAlongNormal = vec3.dot(focalToTarget, normal);
 
-      const newFocalPoint = vec3.scaleAndAdd(vec3.create(), focalPoint as any, normal, deltaAlongNormal);
+      const newFocalPoint = vec3.scaleAndAdd(
+        vec3.create(),
+        focalPoint as any,
+        normal,
+        deltaAlongNormal
+      );
       const cameraOffset = vec3.sub(vec3.create(), position as any, focalPoint as any);
       const newPosition = vec3.add(vec3.create(), newFocalPoint, cameraOffset);
 
@@ -300,7 +305,6 @@ function commandsModule({
         const scaleFactor = measurementSize / camera.parallelScale;
         viewport.setZoom(viewport.getZoom() / scaleFactor);
       }
-
     }
 
     viewport.render();
@@ -447,6 +451,75 @@ function commandsModule({
           viewportId,
           displaySetInstanceUIDs: [referencedDisplaySet.displaySetInstanceUID],
         });
+
+        const updatedViewportIds = Array.isArray(results)
+          ? [...new Set(results.map(viewport => viewport.viewportId).filter(Boolean))]
+          : [];
+
+        if (updatedViewportIds.length) {
+          const findViewportWithProbe = viewportIds =>
+            viewportIds.find(candidateViewportId => {
+              const toolGroup = toolGroupService.getToolGroupForViewport(candidateViewportId);
+              if (!toolGroup) {
+                return false;
+              }
+
+              return !!toolGroup?.getToolInstance?.(toolNames.Probe);
+            });
+
+          const nonCurrentViewportIds = updatedViewportIds.filter(
+            candidateViewportId => candidateViewportId !== viewportId
+          );
+
+          const viewportWithReferencedDisplaySetAndProbe = findViewportWithProbe(
+            nonCurrentViewportIds.filter(candidateViewportId => {
+              const displaySetUIDs =
+                viewportGridService.getDisplaySetsUIDsForViewport(candidateViewportId) || [];
+              return displaySetUIDs.includes(referencedDisplaySet.displaySetInstanceUID);
+            })
+          );
+
+          const viewportWithProbe =
+            viewportWithReferencedDisplaySetAndProbe ||
+            findViewportWithProbe(nonCurrentViewportIds) ||
+            findViewportWithProbe(updatedViewportIds);
+
+          const fallbackViewportId = nonCurrentViewportIds[0];
+          const globalViewportIds = Array.from(viewportGridService.getState().viewports.keys());
+          const globalViewportWithProbe = findViewportWithProbe(
+            globalViewportIds.filter(candidateViewportId => candidateViewportId !== viewportId)
+          );
+
+          const targetViewportId =
+            viewportWithProbe || fallbackViewportId || globalViewportWithProbe;
+
+          if (targetViewportId && targetViewportId !== viewportGridService.getActiveViewportId()) {
+            viewportGridService.setActiveViewportId(targetViewportId);
+          } else if (!targetViewportId) {
+            const activeViewportId = viewportGridService.getActiveViewportId();
+            const activeToolGroup = activeViewportId
+              ? toolGroupService.getToolGroupForViewport(activeViewportId)
+              : null;
+
+            if (activeViewportId && !activeToolGroup?.getToolInstance?.(toolNames.Probe)) {
+              const fallbackToolGroupId = toolGroupService.getToolGroupIds().find(toolGroupId => {
+                const toolGroup = toolGroupService.getToolGroup(toolGroupId);
+                return !!toolGroup?.getToolInstance?.(toolNames.Probe);
+              });
+
+              if (fallbackToolGroupId) {
+                const renderingEngineId = cornerstoneViewportService.getRenderingEngine().id;
+
+                toolGroupService.removeViewportFromToolGroup(activeViewportId, renderingEngineId);
+                toolGroupService.addViewportToToolGroup(
+                  activeViewportId,
+                  renderingEngineId,
+                  fallbackToolGroupId
+                );
+              }
+            }
+          }
+        }
 
         const disableEditing = customizationService.getCustomization(
           'panelSegmentation.disableEditing'
@@ -2204,6 +2277,8 @@ function commandsModule({
           displaySetInstanceUIDs: viewport.displaySetInstanceUIDs,
         })),
       });
+
+      return updatedViewports;
     },
     setViewportOrientation: ({ viewportId, orientation }) => {
       const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
