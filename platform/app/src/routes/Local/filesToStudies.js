@@ -18,9 +18,10 @@ const processFile = async file => {
 
 const processNiftiFile = async (file, niftiOptions) => {
   try {
-    await addNiftiToMetadataStore(file, niftiOptions);
+    return await addNiftiToMetadataStore(file, niftiOptions);
   } catch (error) {
     console.log('Error when trying to load NIfTI file:', error.message);
+    return null;
   }
 };
 
@@ -37,28 +38,59 @@ export default async function filesToStudies(files, _dataSource, options = {}) {
   });
 
   const dicomPromises = otherFiles.map(processFile);
-  const niftiOptionsResolver = options?.resolveNiftiOptions;
+  await Promise.all(dicomPromises);
+
+  // Per-file NIfTI import options gathered up front (e.g. from the import
+  // confirmation modal). Falls back to inferring from the file name.
+  const niftiOptionsByFile =
+    options?.niftiOptionsByFile instanceof Map ? options.niftiOptionsByFile : null;
+
+  const getOptions = file => {
+    const resolved = niftiOptionsByFile?.get(file);
+    if (resolved) {
+      return resolved;
+    }
+    return { fileKind: inferNiftiImportKind(file.name) };
+  };
 
   const niftiVolumeFiles = [];
   const niftiSegmentationFiles = [];
 
   niftiFiles.forEach(file => {
-    const inferredKind = inferNiftiImportKind(file.name);
-    if (inferredKind === NIFTI_IMPORT_KINDS.SEGMENTATION) {
+    if (getOptions(file).fileKind === NIFTI_IMPORT_KINDS.SEGMENTATION) {
       niftiSegmentationFiles.push(file);
-      return;
+    } else {
+      niftiVolumeFiles.push(file);
     }
-
-    niftiVolumeFiles.push(file);
   });
 
-  const orderedNiftiFiles = [...niftiVolumeFiles, ...niftiSegmentationFiles];
+  // Volumes first so segmentations can reference a volume from the same batch.
+  const volumeInfoByFileName = new Map();
+  for (const file of niftiVolumeFiles) {
+    const studyInstanceUID = await processNiftiFile(file, getOptions(file));
+    if (studyInstanceUID) {
+      const study = DicomMetadataStore.getStudy(studyInstanceUID);
+      volumeInfoByFileName.set(file.name, {
+        studyInstanceUID,
+        seriesInstanceUID: study?.series?.[0]?.SeriesInstanceUID,
+      });
+    }
+  }
 
-  await Promise.all(dicomPromises);
+  for (const file of niftiSegmentationFiles) {
+    const fileOptions = { ...getOptions(file) };
 
-  for (const file of orderedNiftiFiles) {
-    const niftiOptions = niftiOptionsResolver ? await niftiOptionsResolver(file) : undefined;
-    await processNiftiFile(file, niftiOptions);
+    // Resolve a same-batch volume reference to the study/series it produced.
+    if (!fileOptions.referenceStudyInstanceUID && fileOptions.referenceFileName) {
+      const volumeInfo = volumeInfoByFileName.get(fileOptions.referenceFileName);
+      if (volumeInfo) {
+        fileOptions.referenceStudyInstanceUID = volumeInfo.studyInstanceUID;
+        fileOptions.referenceSeriesInstanceUID =
+          fileOptions.referenceSeriesInstanceUID || volumeInfo.seriesInstanceUID;
+      }
+    }
+
+    await processNiftiFile(file, fileOptions);
   }
 
   return DicomMetadataStore.getStudyInstanceUIDs();

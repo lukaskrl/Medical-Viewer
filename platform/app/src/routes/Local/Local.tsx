@@ -5,11 +5,8 @@ import { DicomMetadataStore, MODULE_TYPES, useSystem } from '@ohif/core';
 
 import Dropzone from 'react-dropzone';
 import filesToStudies from './filesToStudies';
-import {
-  findMatchingStudyForNifti,
-  inferNiftiImportKind,
-  NIFTI_IMPORT_KINDS,
-} from './niftiUploadOptions';
+import { isNiftiFile } from './niftiFileLoader';
+import NiftiImportModal from './NiftiImportModal';
 
 import { extensionManager } from '../../App';
 
@@ -60,6 +57,11 @@ function Local({ modePath }: LocalProps) {
   const navigate = useNavigate();
   const dropzoneRef = useRef();
   const [dropInitiated, setDropInitiated] = React.useState(false);
+  // Files awaiting NIfTI volume/segmentation confirmation in the import modal.
+  const [pendingNiftiImport, setPendingNiftiImport] = React.useState<{
+    acceptedFiles: File[];
+    niftiFiles: File[];
+  } | null>(null);
 
   const LoadingIndicatorProgress = customizationService.getCustomization(
     'ui.loadingIndicatorProgress'
@@ -84,87 +86,35 @@ function Local({ modePath }: LocalProps) {
     '@ohif/extension-dicom-microscopy'
   );
 
-  const resolveNiftiOptions = async file => {
-    const inferredKind = inferNiftiImportKind(file.name);
-    const defaultKind = inferredKind;
-    const kindAnswer = window.prompt(
-      `${file.name}\nEnter volume or segmentation for this NIfTI file.`,
-      defaultKind
-    );
-    const fileKind =
-      kindAnswer?.toLowerCase() === NIFTI_IMPORT_KINDS.SEGMENTATION
-        ? NIFTI_IMPORT_KINDS.SEGMENTATION
-        : NIFTI_IMPORT_KINDS.VOLUME;
-
-    if (fileKind !== NIFTI_IMPORT_KINDS.SEGMENTATION) {
-      return { fileKind };
-    }
-
+  // Existing studies in the metadata store that a segmentation can be linked to.
+  const getExistingStudyOptions = () => {
     const studyInstanceUIDs = DicomMetadataStore.getStudyInstanceUIDs() as any[];
-    const studies: any[] = studyInstanceUIDs.reduce((acc: any[], StudyInstanceUID) => {
-        const study = DicomMetadataStore.getStudy(StudyInstanceUID) as any;
-        if (!study) {
-          return acc;
-        }
-
-        acc.push({
-          StudyInstanceUID,
-          description: study.description || '',
-          series: study.series || [],
-        });
-
+    return studyInstanceUIDs.reduce((acc: any[], StudyInstanceUID) => {
+      const study = DicomMetadataStore.getStudy(StudyInstanceUID) as any;
+      if (!study) {
         return acc;
-      }, []);
+      }
 
-    const inferredStudy = findMatchingStudyForNifti(file.name, studies) as any;
-    if (inferredStudy) {
-      const inferredSeries = inferredStudy.series?.[0];
-      return {
-        fileKind,
-        referenceStudyInstanceUID: inferredStudy.StudyInstanceUID,
-        referenceSeriesInstanceUID: inferredSeries?.SeriesInstanceUID,
-      };
-    }
+      const firstSeries = study.series?.[0];
+      const description =
+        firstSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
+      const seriesDescription = firstSeries?.instances?.[0]?.SeriesDescription || '';
 
-    if (!studies.length) {
-      window.alert('No existing studies are available to link this segmentation to.');
-      return { fileKind: NIFTI_IMPORT_KINDS.VOLUME };
-    }
+      acc.push({
+        StudyInstanceUID,
+        SeriesInstanceUID: firstSeries?.SeriesInstanceUID,
+        label: seriesDescription ? `${description} / ${seriesDescription}` : description,
+      });
 
-    const studyMenu = studies
-      .map((study, index) => {
-        const firstSeries = study.series?.[0];
-        const description = firstSeries?.instances?.[0]?.StudyDescription || study.description || '';
-        const seriesDescription = firstSeries?.instances?.[0]?.SeriesDescription || '';
-        return `${index + 1}. ${description || study.StudyInstanceUID}${
-          seriesDescription ? ` / ${seriesDescription}` : ''
-        }`;
-      })
-      .join('\n');
-
-    const selection = window.prompt(
-      `Select the study to link this segmentation to:\n${studyMenu}`,
-      '1'
-    );
-    const selectedIndex = Number.parseInt(selection || '1', 10) - 1;
-    const selectedStudy = studies[selectedIndex] as any;
-
-    if (!selectedStudy) {
-      window.alert('Invalid study selection. Importing this file as a volume instead.');
-      return { fileKind: NIFTI_IMPORT_KINDS.VOLUME };
-    }
-
-    const selectedSeries = selectedStudy.series?.[0];
-    return {
-      fileKind,
-      referenceStudyInstanceUID: selectedStudy.StudyInstanceUID,
-      referenceSeriesInstanceUID: selectedSeries?.SeriesInstanceUID,
-    };
+      return acc;
+    }, []);
   };
 
-  const onDrop = async acceptedFiles => {
+  const loadStudiesAndNavigate = async (acceptedFiles, niftiOptionsByFile) => {
+    setDropInitiated(true);
+
     const studies = await filesToStudies(acceptedFiles, dataSource, {
-      resolveNiftiOptions,
+      niftiOptionsByFile,
     });
 
     const query = new URLSearchParams();
@@ -194,6 +144,31 @@ function Local({ modePath }: LocalProps) {
     navigate(`/${modePath}?${decodeURIComponent(query.toString())}`);
   };
 
+  const onDrop = async acceptedFiles => {
+    const niftiFiles = acceptedFiles.filter(isNiftiFile);
+
+    // Let the user confirm volume/segmentation for every NIfTI file at once.
+    if (niftiFiles.length > 0) {
+      setPendingNiftiImport({ acceptedFiles, niftiFiles });
+      return;
+    }
+
+    await loadStudiesAndNavigate(acceptedFiles, null);
+  };
+
+  const handleNiftiConfirm = resolution => {
+    const pending = pendingNiftiImport;
+    setPendingNiftiImport(null);
+    if (pending) {
+      loadStudiesAndNavigate(pending.acceptedFiles, resolution);
+    }
+  };
+
+  const handleNiftiCancel = () => {
+    setPendingNiftiImport(null);
+    setDropInitiated(false);
+  };
+
   // Set body style
   useEffect(() => {
     document.body.classList.add('bg-background');
@@ -205,10 +180,7 @@ function Local({ modePath }: LocalProps) {
   return (
     <Dropzone
       ref={dropzoneRef}
-      onDrop={acceptedFiles => {
-        setDropInitiated(true);
-        onDrop(acceptedFiles);
-      }}
+      onDrop={onDrop}
       noClick
     >
       {({ getRootProps }) => (
@@ -216,6 +188,14 @@ function Local({ modePath }: LocalProps) {
           {...getRootProps()}
           style={{ width: '100%', height: '100%' }}
         >
+          {pendingNiftiImport && (
+            <NiftiImportModal
+              files={pendingNiftiImport.niftiFiles}
+              studies={getExistingStudyOptions()}
+              onConfirm={handleNiftiConfirm}
+              onCancel={handleNiftiCancel}
+            />
+          )}
           <div className="flex h-screen w-screen items-center justify-center">
             <div className="bg-muted border-primary/60 mx-auto space-y-2 rounded-xl border border-dashed py-12 px-12 drop-shadow-md">
               <div className="flex items-center justify-center">
