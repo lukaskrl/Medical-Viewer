@@ -1,6 +1,6 @@
 import { utils, Types as OhifTypes } from '@ohif/core';
 import i18n from '@ohif/i18n';
-import { metaData, eventTarget } from '@cornerstonejs/core';
+import { imageLoader, metaData, eventTarget } from '@cornerstonejs/core';
 import { CONSTANTS, segmentation as cstSegmentation } from '@cornerstonejs/tools';
 import { adaptersSEG, Enums } from '@cornerstonejs/adapters';
 
@@ -10,6 +10,96 @@ import { dicomlabToRGB } from './utils/dicomlabToRGB';
 const sopClassUids = ['1.2.840.10008.5.1.4.1.1.66.4', '1.2.840.10008.5.1.4.1.1.66.7'];
 
 const loadPromises = {};
+
+async function _loadNiftiSegments({ segDisplaySet, servicesManager }) {
+  const referencedDisplaySet = servicesManager.services.displaySetService.getDisplaySetByUID(
+    segDisplaySet.referencedDisplaySetInstanceUID
+  );
+
+  if (!referencedDisplaySet) {
+    throw new Error('referencedDisplaySet is missing for SEG');
+  }
+
+  let referencedImageIds = referencedDisplaySet.imageIds;
+
+  if (!referencedImageIds?.length) {
+    referencedImageIds = referencedDisplaySet.instances?.map(instance => instance.imageId) || [];
+  }
+
+  referencedImageIds = (referencedImageIds || []).filter(
+    imageId => typeof imageId === 'string' && imageId.length > 0
+  );
+
+  if (!referencedImageIds.length) {
+    throw new Error('NIfTI SEG loading failed: referenced display set has no imageIds');
+  }
+
+  const segInstances = (segDisplaySet.instances || [])
+    .slice()
+    .sort((a, b) => (a.InstanceNumber || 0) - (b.InstanceNumber || 0));
+  const segImageIds = segInstances.map(instance => instance.imageId).filter(Boolean);
+
+  if (!segImageIds.length) {
+    throw new Error('NIfTI SEG loading failed: no segmentation imageIds found');
+  }
+
+  const segImages = await Promise.all(
+    segImageIds.map(imageId => imageLoader.loadAndCacheImage(imageId))
+  );
+
+  const segmentsOnLabelmap = new Set<number>();
+
+  const labelMapImages = segImages.map((image, index) => {
+    const scalarData = image.voxelManager?.getScalarData?.() || image.getPixelData?.() || [];
+    for (let i = 0; i < scalarData.length; i++) {
+      const segmentIndex = scalarData[i];
+      if (segmentIndex > 0) {
+        segmentsOnLabelmap.add(segmentIndex);
+      }
+    }
+
+    const referencedImageId =
+      referencedImageIds[index] || referencedImageIds[referencedImageIds.length - 1];
+
+    if (!referencedImageId) {
+      throw new Error('NIfTI SEG loading failed: unable to resolve referenced imageId');
+    }
+
+    return {
+      ...image,
+      imageId: image.imageId,
+      referencedImageId,
+    };
+  });
+
+  const sortedSegmentIndices = Array.from(segmentsOnLabelmap).sort((a, b) => a - b);
+  const segMetadataData = [{}];
+
+  sortedSegmentIndices.forEach((segmentIndex, idx) => {
+    segMetadataData.push({
+      SegmentNumber: String(segmentIndex),
+      SegmentLabel: `Segment ${segmentIndex}`,
+      SegmentAlgorithmType: 'AUTOMATIC',
+      SegmentAlgorithmName: 'NIfTI Import',
+      SegmentedPropertyCategoryCodeSequence: {
+        CodeValue: 'T-D0050',
+        CodingSchemeDesignator: 'SRT',
+        CodeMeaning: 'Tissue',
+      },
+      SegmentedPropertyTypeCodeSequence: {
+        CodeValue: 'T-D0050',
+        CodingSchemeDesignator: 'SRT',
+        CodeMeaning: 'Tissue',
+      },
+      rgba: CONSTANTS.COLOR_LUT[(idx + 1) % CONSTANTS.COLOR_LUT.length],
+    });
+  });
+
+  segDisplaySet.labelMapImages = labelMapImages;
+  segDisplaySet.segMetadata = {
+    data: segMetadataData,
+  };
+}
 
 function _getDisplaySetsFromSeries(
   instances,
@@ -36,6 +126,8 @@ function _getDisplaySetsFromSeries(
     imageId: predecessorImageId,
   } = instance;
 
+  const isNiftiSegmentation = instances.some(instance => instance?.isNiftiSegmentation);
+
   const displaySet = {
     Modality: 'SEG',
     loading: false,
@@ -59,7 +151,7 @@ function _getDisplaySetsFromSeries(
     sopClassUids,
     instance,
     predecessorImageId,
-    instances: [instance],
+    instances: isNiftiSegmentation ? instances : [instance],
     wadoRoot,
     wadoUriRoot,
     wadoUri,
@@ -143,12 +235,19 @@ function _load(
   loadPromises[SOPInstanceUID] = new Promise(async (resolve, reject) => {
     if (!segDisplaySet.segments || Object.keys(segDisplaySet.segments).length === 0) {
       try {
-        await _loadSegments({
-          extensionManager,
-          servicesManager,
-          segDisplaySet,
-          headers,
-        });
+        if (segDisplaySet.instance?.isNiftiSegmentation) {
+          await _loadNiftiSegments({
+            servicesManager,
+            segDisplaySet,
+          });
+        } else {
+          await _loadSegments({
+            extensionManager,
+            servicesManager,
+            segDisplaySet,
+            headers,
+          });
+        }
       } catch (e) {
         segDisplaySet.loading = false;
         return reject(e);

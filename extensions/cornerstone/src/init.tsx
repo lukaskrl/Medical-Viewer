@@ -18,6 +18,10 @@ import {
   cornerstoneStreamingImageVolumeLoader,
   cornerstoneStreamingDynamicImageVolumeLoader,
 } from '@cornerstonejs/core/loaders';
+import {
+  cornerstoneNiftiImageLoader,
+  init as initNiftiVolumeLoader,
+} from '@cornerstonejs/nifti-volume-loader';
 
 import RequestTypes from '@cornerstonejs/core/enums/RequestType';
 
@@ -196,6 +200,12 @@ export default async function init({
   };
 
   initWADOImageLoader(userAuthenticationService, appConfig, extensionManager);
+
+  initNiftiVolumeLoader({
+    beforeSend: () => ({}),
+  });
+
+  cornerstone.imageLoader.registerImageLoader('nifti', cornerstoneNiftiImageLoader);
 
   /* Measurement Service */
   this.measurementServiceSource = connectToolsToMeasurementService({

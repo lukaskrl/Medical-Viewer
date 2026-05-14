@@ -5,6 +5,11 @@ import { DicomMetadataStore, MODULE_TYPES, useSystem } from '@ohif/core';
 
 import Dropzone from 'react-dropzone';
 import filesToStudies from './filesToStudies';
+import {
+  findMatchingStudyForNifti,
+  inferNiftiImportKind,
+  NIFTI_IMPORT_KINDS,
+} from './niftiUploadOptions';
 
 import { extensionManager } from '../../App';
 
@@ -79,8 +84,88 @@ function Local({ modePath }: LocalProps) {
     '@ohif/extension-dicom-microscopy'
   );
 
+  const resolveNiftiOptions = async file => {
+    const inferredKind = inferNiftiImportKind(file.name);
+    const defaultKind = inferredKind;
+    const kindAnswer = window.prompt(
+      `${file.name}\nEnter volume or segmentation for this NIfTI file.`,
+      defaultKind
+    );
+    const fileKind =
+      kindAnswer?.toLowerCase() === NIFTI_IMPORT_KINDS.SEGMENTATION
+        ? NIFTI_IMPORT_KINDS.SEGMENTATION
+        : NIFTI_IMPORT_KINDS.VOLUME;
+
+    if (fileKind !== NIFTI_IMPORT_KINDS.SEGMENTATION) {
+      return { fileKind };
+    }
+
+    const studyInstanceUIDs = DicomMetadataStore.getStudyInstanceUIDs() as any[];
+    const studies: any[] = studyInstanceUIDs.reduce((acc: any[], StudyInstanceUID) => {
+        const study = DicomMetadataStore.getStudy(StudyInstanceUID) as any;
+        if (!study) {
+          return acc;
+        }
+
+        acc.push({
+          StudyInstanceUID,
+          description: study.description || '',
+          series: study.series || [],
+        });
+
+        return acc;
+      }, []);
+
+    const inferredStudy = findMatchingStudyForNifti(file.name, studies) as any;
+    if (inferredStudy) {
+      const inferredSeries = inferredStudy.series?.[0];
+      return {
+        fileKind,
+        referenceStudyInstanceUID: inferredStudy.StudyInstanceUID,
+        referenceSeriesInstanceUID: inferredSeries?.SeriesInstanceUID,
+      };
+    }
+
+    if (!studies.length) {
+      window.alert('No existing studies are available to link this segmentation to.');
+      return { fileKind: NIFTI_IMPORT_KINDS.VOLUME };
+    }
+
+    const studyMenu = studies
+      .map((study, index) => {
+        const firstSeries = study.series?.[0];
+        const description = firstSeries?.instances?.[0]?.StudyDescription || study.description || '';
+        const seriesDescription = firstSeries?.instances?.[0]?.SeriesDescription || '';
+        return `${index + 1}. ${description || study.StudyInstanceUID}${
+          seriesDescription ? ` / ${seriesDescription}` : ''
+        }`;
+      })
+      .join('\n');
+
+    const selection = window.prompt(
+      `Select the study to link this segmentation to:\n${studyMenu}`,
+      '1'
+    );
+    const selectedIndex = Number.parseInt(selection || '1', 10) - 1;
+    const selectedStudy = studies[selectedIndex] as any;
+
+    if (!selectedStudy) {
+      window.alert('Invalid study selection. Importing this file as a volume instead.');
+      return { fileKind: NIFTI_IMPORT_KINDS.VOLUME };
+    }
+
+    const selectedSeries = selectedStudy.series?.[0];
+    return {
+      fileKind,
+      referenceStudyInstanceUID: selectedStudy.StudyInstanceUID,
+      referenceSeriesInstanceUID: selectedSeries?.SeriesInstanceUID,
+    };
+  };
+
   const onDrop = async acceptedFiles => {
-    const studies = await filesToStudies(acceptedFiles, dataSource);
+    const studies = await filesToStudies(acceptedFiles, dataSource, {
+      resolveNiftiOptions,
+    });
 
     const query = new URLSearchParams();
 
@@ -144,10 +229,12 @@ function Local({ modePath }: LocalProps) {
                 ) : (
                   <div className="space-y-2">
                     <p className="text-primary pt-0 text-xl">
-                      Drag and drop your DICOM files & folders here <br />
+                      Drag and drop your DICOM or NIfTI files & folders here <br />
                       to load them locally.
                     </p>
                     <p className="text-muted-foreground text-base">
+                      Supported formats: DICOM (.dcm), NIfTI (.nii, .nii.gz)
+                      <br />
                       Note: Your data remains locally within your browser
                       <br /> and is never uploaded to any server.
                     </p>

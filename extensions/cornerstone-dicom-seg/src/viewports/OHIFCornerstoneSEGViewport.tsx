@@ -290,15 +290,15 @@ function _getReferencedDisplaySetMetadata(referencedDisplaySet, segDisplaySet) {
     ? SharedFunctionalGroupsSequence[0]
     : SharedFunctionalGroupsSequence;
 
-  const { PixelMeasuresSequence } = SharedFunctionalGroup;
+  const { PixelMeasuresSequence } = SharedFunctionalGroup || {};
 
   const PixelMeasures = Array.isArray(PixelMeasuresSequence)
     ? PixelMeasuresSequence[0]
     : PixelMeasuresSequence;
 
-  const { SpacingBetweenSlices, SliceThickness } = PixelMeasures;
+  const { SpacingBetweenSlices, SliceThickness } = PixelMeasures || {};
 
-  const image0 = referencedDisplaySet.images[0];
+  const image0 = referencedDisplaySet?.images?.[0] || referencedDisplaySet?.instances?.[0] || {};
   const referencedDisplaySetMetadata = {
     PatientID: image0.PatientID,
     PatientName: image0.PatientName,

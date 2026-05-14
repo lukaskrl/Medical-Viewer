@@ -10,9 +10,14 @@ import Dropzone from 'react-dropzone';
 //
 import filtersMeta from './filtersMeta.js';
 import filesToStudies from '../Local/filesToStudies';
+import {
+  findMatchingStudyForNifti,
+  inferNiftiImportKind,
+  NIFTI_IMPORT_KINDS,
+} from '../Local/niftiUploadOptions';
 import { useAppConfig } from '@state';
 import { useDebounce, useSearchParams } from '../../hooks';
-import { utils, Types as coreTypes } from '@ohif/core';
+import { DicomMetadataStore, utils, Types as coreTypes } from '@ohif/core';
 
 import {
   StudyListExpandedRow,
@@ -554,6 +559,83 @@ function WorkList({
     'ohif.dataSourceConfigurationComponent'
   );
 
+  const resolveNiftiOptions = async file => {
+    const inferredKind = inferNiftiImportKind(file.name);
+    const kindAnswer = window.prompt(
+      `${file.name}\nEnter volume or segmentation for this NIfTI file.`,
+      inferredKind
+    );
+    const fileKind =
+      kindAnswer?.toLowerCase() === NIFTI_IMPORT_KINDS.SEGMENTATION
+        ? NIFTI_IMPORT_KINDS.SEGMENTATION
+        : NIFTI_IMPORT_KINDS.VOLUME;
+
+    if (fileKind !== NIFTI_IMPORT_KINDS.SEGMENTATION) {
+      return { fileKind };
+    }
+
+    const studyInstanceUIDs = DicomMetadataStore.getStudyInstanceUIDs() as any[];
+    const studies: any[] = studyInstanceUIDs.reduce((acc: any[], StudyInstanceUID) => {
+        const study = DicomMetadataStore.getStudy(StudyInstanceUID) as any;
+        if (!study) {
+          return acc;
+        }
+
+        acc.push({
+          StudyInstanceUID,
+          description: study.description || '',
+          series: study.series || [],
+        });
+
+        return acc;
+      }, []);
+
+    const inferredStudy = findMatchingStudyForNifti(file.name, studies) as any;
+    if (inferredStudy) {
+      const inferredSeries = inferredStudy.series?.[0];
+      return {
+        fileKind,
+        referenceStudyInstanceUID: inferredStudy.StudyInstanceUID,
+        referenceSeriesInstanceUID: inferredSeries?.SeriesInstanceUID,
+      };
+    }
+
+    if (!studies.length) {
+      window.alert('No existing studies are available to link this segmentation to.');
+      return { fileKind: NIFTI_IMPORT_KINDS.VOLUME };
+    }
+
+    const studyMenu = studies
+      .map((study, index) => {
+        const firstSeries = study.series?.[0];
+        const description = firstSeries?.instances?.[0]?.StudyDescription || study.description || '';
+        const seriesDescription = firstSeries?.instances?.[0]?.SeriesDescription || '';
+        return `${index + 1}. ${description || study.StudyInstanceUID}${
+          seriesDescription ? ` / ${seriesDescription}` : ''
+        }`;
+      })
+      .join('\n');
+
+    const selection = window.prompt(
+      `Select the study to link this segmentation to:\n${studyMenu}`,
+      '1'
+    );
+    const selectedIndex = Number.parseInt(selection || '1', 10) - 1;
+    const selectedStudy = studies[selectedIndex] as any;
+
+    if (!selectedStudy) {
+      window.alert('Invalid study selection. Importing this file as a volume instead.');
+      return { fileKind: NIFTI_IMPORT_KINDS.VOLUME };
+    }
+
+    const selectedSeries = selectedStudy.series?.[0];
+    return {
+      fileKind,
+      referenceStudyInstanceUID: selectedStudy.StudyInstanceUID,
+      referenceSeriesInstanceUID: selectedSeries?.SeriesInstanceUID,
+    };
+  };
+
   const onStudyListDrop = async acceptedFiles => {
     if (!acceptedFiles?.length) {
       return;
@@ -562,7 +644,9 @@ function WorkList({
     setDropInitiated(true);
 
     try {
-      const studies = await filesToStudies(acceptedFiles, dataSource, servicesManager);
+      const studies = await filesToStudies(acceptedFiles, dataSource, {
+        resolveNiftiOptions,
+      });
 
       if (!studies?.length) {
         return;

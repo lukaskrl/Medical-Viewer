@@ -42,11 +42,26 @@ export async function updateSegmentationStats({
     return null;
   }
 
-  const stats = await cornerstoneTools.utilities.segmentation.getStatistics({
-    segmentationId,
-    segmentIndices,
-    mode: 'individual',
-  });
+  let stats;
+
+  try {
+    stats = await cornerstoneTools.utilities.segmentation.getStatistics({
+      segmentationId,
+      segmentIndices,
+      mode: 'individual',
+    });
+  } catch (error) {
+    const message = error?.message || '';
+    if (message.includes('MetadataProvider::Empty imageId')) {
+      return null;
+    }
+
+    console.warn('Failed to update segmentation stats:', {
+      segmentationId,
+      error,
+    });
+    return null;
+  }
 
   if (!stats) {
     return null;

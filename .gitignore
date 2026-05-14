@@ -48,7 +48,10 @@ platform/app/src/pluginImports.js
 platform/app/.recipes/Nginx-Dcm4Chee/logs/*
 platform/app/.recipes/OpenResty-Orthanc/logs/*
 .vercel
-
+build-local.sh
+env/
+vercel.json
+yarn.lock
 .vs
 
 # PlayWright

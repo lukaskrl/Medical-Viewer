@@ -484,14 +484,51 @@ class SegmentationService extends PubSubService {
       throw new Error('No instances were provided for the referenced display set of the SEG');
     }
 
-    const imageIds = images.map(image => image.imageId);
-    const derivedImages = labelMapImages?.flat();
-    const derivedImageIds = derivedImages.map(image => image.imageId);
+    const imageIdsFromDisplaySet = (referencedDisplaySet.imageIds || []).filter(
+      imageId => typeof imageId === 'string' && imageId.length > 0
+    );
+    const imageIdsFromInstances = images
+      .map(image => image.imageId)
+      .filter(imageId => typeof imageId === 'string' && imageId.length > 0);
+    const imageIds = imageIdsFromDisplaySet.length ? imageIdsFromDisplaySet : imageIdsFromInstances;
 
-    segDisplaySet.images = derivedImages.map(image => ({
-      ...image,
-      ...metaData.get('instance', image.referencedImageId),
-    }));
+    if (!imageIds.length) {
+      throw new Error('No valid imageIds were provided for the referenced display set of the SEG');
+    }
+
+    const derivedImages = labelMapImages?.flat();
+    const normalizedDerivedImages = derivedImages.map((image, index) => {
+      const referencedImageId =
+        image.referencedImageId || imageIds[index] || imageIds[imageIds.length - 1];
+
+      if (!referencedImageId) {
+        throw new Error('SEG reading failed: empty referenced imageId on derived labelmap image');
+      }
+
+      return {
+        ...image,
+        referencedImageId,
+      };
+    });
+
+    const derivedImageIds = normalizedDerivedImages
+      .map(image => image.imageId)
+      .filter(imageId => typeof imageId === 'string' && imageId.length > 0);
+
+    if (!derivedImageIds.length) {
+      throw new Error('SEG reading failed: no valid derived imageIds');
+    }
+
+    segDisplaySet.images = normalizedDerivedImages.map(image => {
+      const instanceMetadata = image.referencedImageId
+        ? metaData.get('instance', image.referencedImageId)
+        : null;
+
+      return {
+        ...image,
+        ...(instanceMetadata || {}),
+      };
+    });
 
     segDisplaySet.imageIds = derivedImageIds;
 
@@ -499,14 +536,14 @@ class SegmentationService extends PubSubService {
     // This parsing should occur in the CornerstoneJS library adapters.
     // For now, we use the volume returned from the library and chop it here.
     let firstSegmentedSliceImageId = null;
-    for (let i = 0; i < derivedImages.length; i++) {
-      const voxelManager = derivedImages[i].voxelManager as csTypes.IVoxelManager<number>;
+    for (let i = 0; i < normalizedDerivedImages.length; i++) {
+      const voxelManager = normalizedDerivedImages[i].voxelManager as csTypes.IVoxelManager<number>;
       const scalarData = voxelManager.getScalarData();
       voxelManager.setScalarData(scalarData);
 
       // Check if this slice has any non-zero voxels and we haven't found one yet
       if (!firstSegmentedSliceImageId && scalarData.some(value => value !== 0)) {
-        firstSegmentedSliceImageId = derivedImages[i].referencedImageId;
+        firstSegmentedSliceImageId = normalizedDerivedImages[i].referencedImageId;
       }
     }
 
@@ -1681,6 +1718,15 @@ class SegmentationService extends PubSubService {
       segmentationId,
       config: { colorLUTOrIndex: colorLUTIndex, ...config },
     };
+
+    const existingRepresentations = this.getSegmentationRepresentations(viewportId, {
+      segmentationId,
+      type: representationType,
+    });
+
+    if (existingRepresentations.length > 0) {
+      return;
+    }
 
     const addRepresentation = () =>
       cstSegmentation.addSegmentationRepresentations(viewportId, [representation]);
