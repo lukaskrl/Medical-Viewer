@@ -49,20 +49,79 @@ async function _loadNiftiSegments({ segDisplaySet, servicesManager }) {
 
   const segmentsOnLabelmap = new Set<number>();
 
+  // Accumulators for per-segment centroids, keyed by segment index. These are
+  // required for the "jump to segment" behavior in the segmentation panel; the
+  // DICOM SEG path gets them from the adapter, so we compute the equivalent here.
+  const centroidAccumulators = new Map<
+    number,
+    {
+      x: number;
+      y: number;
+      z: number;
+      worldX: number;
+      worldY: number;
+      worldZ: number;
+      count: number;
+    }
+  >();
+
   const labelMapImages = segImages.map((image, index) => {
     const scalarData = image.voxelManager?.getScalarData?.() || image.getPixelData?.() || [];
-    for (let i = 0; i < scalarData.length; i++) {
-      const segmentIndex = scalarData[i];
-      if (segmentIndex > 0) {
-        segmentsOnLabelmap.add(segmentIndex);
-      }
-    }
 
     const referencedImageId =
       referencedImageIds[index] || referencedImageIds[referencedImageIds.length - 1];
 
     if (!referencedImageId) {
       throw new Error('NIfTI SEG loading failed: unable to resolve referenced imageId');
+    }
+
+    const imagePlaneModule = metaData.get('imagePlaneModule', referencedImageId);
+    const columns = image.columns || image.width;
+
+    for (let i = 0; i < scalarData.length; i++) {
+      const segmentIndex = scalarData[i];
+      if (segmentIndex > 0) {
+        segmentsOnLabelmap.add(segmentIndex);
+
+        let accumulator = centroidAccumulators.get(segmentIndex);
+        if (!accumulator) {
+          accumulator = { x: 0, y: 0, z: 0, worldX: 0, worldY: 0, worldZ: 0, count: 0 };
+          centroidAccumulators.set(segmentIndex, accumulator);
+        }
+
+        const x = i % columns;
+        const y = Math.floor(i / columns);
+
+        accumulator.x += x;
+        accumulator.y += y;
+        accumulator.z += index;
+
+        if (imagePlaneModule) {
+          const {
+            imagePositionPatient,
+            rowCosines,
+            columnCosines,
+            rowPixelSpacing,
+            columnPixelSpacing,
+          } = imagePlaneModule;
+
+          // P(world) = P(image) * IOP * spacing + IPP
+          accumulator.worldX +=
+            imagePositionPatient[0] +
+            x * rowCosines[0] * columnPixelSpacing +
+            y * columnCosines[0] * rowPixelSpacing;
+          accumulator.worldY +=
+            imagePositionPatient[1] +
+            x * rowCosines[1] * columnPixelSpacing +
+            y * columnCosines[1] * rowPixelSpacing;
+          accumulator.worldZ +=
+            imagePositionPatient[2] +
+            x * rowCosines[2] * columnPixelSpacing +
+            y * columnCosines[2] * rowPixelSpacing;
+        }
+
+        accumulator.count += 1;
+      }
     }
 
     return {
@@ -74,6 +133,32 @@ async function _loadNiftiSegments({ segDisplaySet, servicesManager }) {
 
   const sortedSegmentIndices = Array.from(segmentsOnLabelmap).sort((a, b) => a - b);
   const segMetadataData = [{}];
+
+  // Reduce the accumulators into the centroid Map shape expected by
+  // SegmentationService.createSegmentationForSEGDisplaySet. That code looks up
+  // centroids by the segment's position in segMetadata.data (index 0 reserved),
+  // so we key the Map the same way rather than by the raw segment value.
+  const centroids = new Map();
+
+  sortedSegmentIndices.forEach((segmentIndex, idx) => {
+    const accumulator = centroidAccumulators.get(segmentIndex);
+    if (accumulator) {
+      const { x, y, z, worldX, worldY, worldZ, count } = accumulator;
+      centroids.set(idx + 1, {
+        image: {
+          x: Math.floor(x / count),
+          y: Math.floor(y / count),
+          z: Math.floor(z / count),
+        },
+        world: {
+          x: worldX / count,
+          y: worldY / count,
+          z: worldZ / count,
+        },
+        count,
+      });
+    }
+  });
 
   sortedSegmentIndices.forEach((segmentIndex, idx) => {
     segMetadataData.push({
@@ -96,6 +181,7 @@ async function _loadNiftiSegments({ segDisplaySet, servicesManager }) {
   });
 
   segDisplaySet.labelMapImages = labelMapImages;
+  segDisplaySet.centroids = centroids;
   segDisplaySet.segMetadata = {
     data: segMetadataData,
   };
