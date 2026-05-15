@@ -341,6 +341,14 @@ class SegmentationService extends PubSubService {
       config
     );
 
+    // In 3D volume viewports, surface segmentations should be visible by
+    // default — the user opts out via the per-item toggle in the viewport
+    // data overlay menu. Volume rendering, by contrast, is hidden by default
+    // (see CornerstoneViewportService._setVolumesForViewport).
+    if (representationTypeToUse === SURFACE) {
+      this._setSegmentationRepresentationVisibility(viewportId, segmentationId, SURFACE, true);
+    }
+
     if (!suppressEvents) {
       this._broadcastEvent(this.EVENTS.SEGMENTATION_REPRESENTATION_MODIFIED, { segmentationId });
     }
@@ -1318,10 +1326,71 @@ class SegmentationService extends PubSubService {
     this._toggleSegmentationRepresentationVisibility(viewportId, segmentationId, type);
   };
 
+  /**
+   * Sets the visibility of a segmentation representation in a viewport.
+   * @param viewportId - The ID of the viewport.
+   * @param segmentationId - The ID of the segmentation.
+   * @param type - The type of representation.
+   * @param isVisible - The new visibility state.
+   */
+  public setSegmentationRepresentationVisibility = (
+    viewportId: string,
+    {
+      segmentationId,
+      type,
+    }: { segmentationId: string; type: csToolsEnums.SegmentationRepresentations },
+    isVisible: boolean
+  ): void => {
+    this._setSegmentationRepresentationVisibility(viewportId, segmentationId, type, isVisible);
+  };
+
   public getViewportIdsWithSegmentation = (segmentationId: string): string[] => {
     const viewportIds = cstSegmentation.state.getViewportIdsWithSegmentation(segmentationId);
     return viewportIds;
   };
+
+  /**
+   * Whether the given 3D viewport has at least one labelmap segmentation
+   * registered as a surface representation. Used by the viewport overlay menu
+   * to enable the "Show 3D segmentation" toggle.
+   */
+  public has3DSurfaceCandidate(viewportId: string): boolean {
+    return this.getSegmentationRepresentations(viewportId, { type: SURFACE }).length > 0;
+  }
+
+  /**
+   * Shows all SURFACE representations on the given viewport. The first render
+   * after the representation was added kicks off the labelmap->mesh compute
+   * (see throttledPolySegSurface.ts); subsequent toggles just flip visibility
+   * on the already-cached meshes.
+   */
+  public enable3DSurfaceForViewport(viewportId: string): void {
+    const representations = this.getSegmentationRepresentations(viewportId, { type: SURFACE });
+    representations.forEach(representation => {
+      this._setSegmentationRepresentationVisibility(
+        viewportId,
+        representation.segmentationId,
+        SURFACE,
+        true
+      );
+    });
+  }
+
+  /**
+   * Hides all SURFACE representations on the given viewport. Meshes stay
+   * cached so re-enabling is instant.
+   */
+  public disable3DSurfaceForViewport(viewportId: string): void {
+    const representations = this.getSegmentationRepresentations(viewportId, { type: SURFACE });
+    representations.forEach(representation => {
+      this._setSegmentationRepresentationVisibility(
+        viewportId,
+        representation.segmentationId,
+        SURFACE,
+        false
+      );
+    });
+  }
 
   /**
    * Clears segmentation representations from the viewport.
@@ -1728,8 +1797,9 @@ class SegmentationService extends PubSubService {
       return;
     }
 
-    const addRepresentation = () =>
+    const addRepresentation = () => {
       cstSegmentation.addSegmentationRepresentations(viewportId, [representation]);
+    };
 
     if (isConverted) {
       const { viewportGridService } = this.servicesManager.services;

@@ -1133,6 +1133,13 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     volumesProperties.forEach(({ properties, volumeId }) => {
       timeoutViewportCallback(() => {
         viewport.setProperties(properties, volumeId);
+        // In 3D viewports the volume rendering is hidden by default. Its
+        // preset is still applied so it is ready to display, but the user
+        // explicitly toggles it on via the viewport data overlay menu.
+        if (viewport.type === csEnums.ViewportType.VOLUME_3D) {
+          const actorEntry = viewport.getActor(volumeId);
+          actorEntry?.actor?.setVisibility(false);
+        }
         viewport.render();
       });
     });

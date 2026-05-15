@@ -1619,6 +1619,58 @@ function commandsModule({
     },
 
     /**
+     * Sets the visibility of the rendered volume(s) in a 3D viewport. The 3D
+     * volume rendering is hidden by default and toggled on demand via the
+     * viewport data overlay menu.
+     * @param props.viewportId - The ID of the viewport.
+     * @param props.isVisible - The desired visibility state.
+     * @param props.displaySetInstanceUID - Optional. Restrict the change to
+     *   actors derived from this display set. When omitted, all volume actors
+     *   in the viewport are toggled together.
+     */
+    setViewportVolumeVisibility: ({ viewportId, isVisible, displaySetInstanceUID }) => {
+      const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+      if (!viewport) {
+        return;
+      }
+
+      const displaySetUIDs = displaySetInstanceUID
+        ? [displaySetInstanceUID]
+        : viewportGridService.getDisplaySetsUIDsForViewport(viewportId) || [];
+
+      viewport.getActors().forEach(actorEntry => {
+        const isVolumeActor = displaySetUIDs.some(uid => actorEntry.referencedId?.includes(uid));
+        if (isVolumeActor) {
+          actorEntry.actor?.setVisibility(isVisible);
+        }
+      });
+
+      viewport.render();
+    },
+
+    /**
+     * Returns whether the rendered volume in a 3D viewport is currently visible.
+     * @param props.viewportId - The ID of the viewport.
+     * @param props.displaySetInstanceUID - Optional. Restrict the check to
+     *   actors derived from this display set.
+     */
+    getViewportVolumeVisibility: ({ viewportId, displaySetInstanceUID }) => {
+      const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+      if (!viewport) {
+        return false;
+      }
+
+      const displaySetUIDs = displaySetInstanceUID
+        ? [displaySetInstanceUID]
+        : viewportGridService.getDisplaySetsUIDsForViewport(viewportId) || [];
+
+      return viewport.getActors().some(actorEntry => {
+        const isVolumeActor = displaySetUIDs.some(uid => actorEntry.referencedId?.includes(uid));
+        return isVolumeActor && actorEntry.actor?.getVisibility();
+      });
+    },
+
+    /**
      * Sets the volume quality for a given viewport.
      * @param {string} viewportId - The ID of the viewport to set the volume quality.
      * @param {number} volumeQuality - The desired quality level of the volume rendering.
@@ -2848,6 +2900,12 @@ function commandsModule({
     },
     toggleSegmentationVisibility: {
       commandFn: actions.toggleSegmentationVisibilityCommand,
+    },
+    setViewportVolumeVisibility: {
+      commandFn: actions.setViewportVolumeVisibility,
+    },
+    getViewportVolumeVisibility: {
+      commandFn: actions.getViewportVolumeVisibility,
     },
     downloadSegmentation: {
       commandFn: actions.downloadSegmentationCommand,

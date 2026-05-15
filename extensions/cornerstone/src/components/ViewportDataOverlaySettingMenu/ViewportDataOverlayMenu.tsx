@@ -15,6 +15,8 @@ import {
 } from '@ohif/ui-next';
 import { useSystem } from '@ohif/core';
 import { useTranslation } from 'react-i18next';
+import { Enums as csEnums } from '@cornerstonejs/core';
+import { Enums as csToolsEnums } from '@cornerstonejs/tools';
 
 import { useViewportDisplaySets } from '../../hooks/useViewportDisplaySets';
 import SelectItemWithModality from '../SelectItemWithModality';
@@ -27,7 +29,62 @@ function ViewportDataOverlayMenu({ viewportId }: withAppTypes<{ viewportId: stri
   const [pendingSegmentations, setPendingSegmentations] = useState<string[]>([]);
   const { toggleColorbar } = useViewportRendering(viewportId);
 
-  const { hangingProtocolService, toolbarService } = servicesManager.services;
+  const { hangingProtocolService, toolbarService, cornerstoneViewportService, segmentationService } =
+    servicesManager.services;
+
+  // 3D volume viewports start with the CT volume rendering hidden (user opts
+  // in via per-item toggles below). Segmentations, by contrast, are shown by
+  // default — the labelmap->mesh compute kicks off on the first render after
+  // the SEG loads (see throttledPolySegSurface.ts).
+  const csViewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+  const is3DViewport = csViewport?.type === csEnums.ViewportType.VOLUME_3D;
+  const SURFACE = csToolsEnums.SegmentationRepresentations.Surface;
+
+  // Per-displaySet visibility state for 3D volume viewports. Volumes default
+  // to hidden (CornerstoneViewportService hides them after setup); surface
+  // segmentations default to visible (the representation is added with
+  // visibility=true and cornerstone-tools auto-computes the mesh on render).
+  const [volumeVisibility, setVolumeVisibility] = useState<Record<string, boolean>>({});
+  const [segmentationVisibility, setSegmentationVisibility] = useState<Record<string, boolean>>({});
+
+  const getVolumeVisible = (displaySetInstanceUID: string): boolean => {
+    if (displaySetInstanceUID in volumeVisibility) {
+      return volumeVisibility[displaySetInstanceUID];
+    }
+    return !!commandsManager.runCommand('getViewportVolumeVisibility', {
+      viewportId,
+      displaySetInstanceUID,
+    });
+  };
+
+  const handleVolumeVisibilityToggle = (displaySetInstanceUID: string) => {
+    const newValue = !getVolumeVisible(displaySetInstanceUID);
+    commandsManager.runCommand('setViewportVolumeVisibility', {
+      viewportId,
+      isVisible: newValue,
+      displaySetInstanceUID,
+    });
+    setVolumeVisibility(prev => ({ ...prev, [displaySetInstanceUID]: newValue }));
+  };
+
+  const getSegmentationVisible = (segmentationId: string): boolean => {
+    if (segmentationId in segmentationVisibility) {
+      return segmentationVisibility[segmentationId];
+    }
+    const representation = segmentationService
+      .getSegmentationRepresentations(viewportId, { segmentationId, type: SURFACE })[0];
+    return !!representation?.visible;
+  };
+
+  const handleSegmentationVisibilityToggle = (segmentationId: string) => {
+    const newValue = !getSegmentationVisible(segmentationId);
+    segmentationService.setSegmentationRepresentationVisibility(
+      viewportId,
+      { segmentationId, type: SURFACE },
+      newValue
+    );
+    setSegmentationVisibility(prev => ({ ...prev, [segmentationId]: newValue }));
+  };
 
   const {
     backgroundDisplaySet,
@@ -256,6 +313,15 @@ function ViewportDataOverlayMenu({ viewportId }: withAppTypes<{ viewportId: stri
               key={displaySet.displaySetInstanceUID}
               className="mb-1 flex items-center"
             >
+              {is3DViewport && (
+                <Switch
+                  className="mr-2 flex-shrink-0"
+                  checked={getSegmentationVisible(displaySet.displaySetInstanceUID)}
+                  onCheckedChange={() =>
+                    handleSegmentationVisibilityToggle(displaySet.displaySetInstanceUID)
+                  }
+                />
+              )}
               <Icons.LayerSegmentation className="text-muted-foreground mr-1 h-6 w-6 flex-shrink-0" />
               <Select
                 value={displaySet.displaySetInstanceUID}
@@ -370,6 +436,15 @@ function ViewportDataOverlayMenu({ viewportId }: withAppTypes<{ viewportId: stri
               key={displaySet.displaySetInstanceUID}
               className="mb-1 flex items-center"
             >
+              {is3DViewport && (
+                <Switch
+                  className="mr-2 flex-shrink-0"
+                  checked={getVolumeVisible(displaySet.displaySetInstanceUID)}
+                  onCheckedChange={() =>
+                    handleVolumeVisibilityToggle(displaySet.displaySetInstanceUID)
+                  }
+                />
+              )}
               <Icons.LayerForeground className="text-muted-foreground mr-1 h-6 w-6 flex-shrink-0" />
               <Select
                 value={displaySet.displaySetInstanceUID}
@@ -470,6 +545,15 @@ function ViewportDataOverlayMenu({ viewportId }: withAppTypes<{ viewportId: stri
         </div>
         {/* Background section */}
         <div className="mt-1 mb-1 flex items-center px-1">
+          {is3DViewport && backgroundDisplaySet && (
+            <Switch
+              className="mr-2 flex-shrink-0"
+              checked={getVolumeVisible(backgroundDisplaySet.displaySetInstanceUID)}
+              onCheckedChange={() =>
+                handleVolumeVisibilityToggle(backgroundDisplaySet.displaySetInstanceUID)
+              }
+            />
+          )}
           <Icons.LayerBackground className="text-muted-foreground mr-1 h-6 w-6 flex-shrink-0" />
           <Select
             value={backgroundDisplaySet?.displaySetInstanceUID}
