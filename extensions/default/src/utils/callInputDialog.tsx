@@ -92,6 +92,12 @@ export async function callInputDialogAutoComplete({
   labelConfig,
   renderContent = LabellingFlow,
   element,
+}: {
+  measurement?: any;
+  uiDialogService: any;
+  labelConfig: any;
+  renderContent?: React.FC<any>;
+  element?: any;
 }) {
   const exclusive = labelConfig ? labelConfig.exclusive : false;
   const dropDownItems = labelConfig ? labelConfig.items : [];

@@ -9,6 +9,11 @@ import PROMPT_RESPONSES from '../../default/src/utils/_shared/PROMPT_RESPONSES';
 import { extractSegmentationVolume } from './utils/extractSegmentationVolume';
 import { buildNiftiBuffer, gzipNifti } from './utils/niftiWriter';
 import { buildNrrdBuffer } from './utils/nrrdWriter';
+import type {
+  OHIFSegmentation,
+  OHIFSegment,
+  OHIFStackLabelmapData,
+} from './types/ohifSegmentation';
 
 const { downloadBlob } = utils;
 
@@ -95,11 +100,20 @@ const commandsModule = ({
      *
      * @returns Returns the generated segmentation data.
      */
-    generateSegmentation: ({ segmentationId, options = {} }) => {
-      const segmentation = cornerstoneToolsSegmentation.state.getSegmentation(segmentationId);
+    generateSegmentation: ({
+      segmentationId,
+      options = {},
+    }: {
+      segmentationId: string;
+      options?: { predecessorImageId?: string; [key: string]: unknown };
+    }) => {
+      const segmentation = cornerstoneToolsSegmentation.state.getSegmentation(
+        segmentationId
+      ) as OHIFSegmentation;
       const predecessorImageId = options.predecessorImageId ?? segmentation.predecessorImageId;
 
-      const { imageIds } = segmentation.representationData.Labelmap;
+      const labelmap = segmentation.representationData.Labelmap as OHIFStackLabelmapData;
+      const { imageIds } = labelmap;
 
       const segImages = imageIds.map(imageId => cache.getImage(imageId));
       const referencedImages = segImages.map(image => cache.getImage(image.referencedImageId));
@@ -140,12 +154,13 @@ const commandsModule = ({
       const segmentationInOHIF = segmentationService.getSegmentation(segmentationId);
       const representations = segmentationService.getRepresentationsForSegmentation(segmentationId);
 
-      Object.entries(segmentationInOHIF.segments).forEach(([segmentIndex, segment]) => {
+      Object.entries(segmentationInOHIF.segments).forEach(([segmentIndex, rawSegment]) => {
         // segmentation service already has a color for each segment
-        if (!segment) {
+        if (!rawSegment) {
           return;
         }
 
+        const segment = rawSegment as OHIFSegment;
         const { label } = segment;
 
         const firstRepresentation = representations[0];
@@ -162,8 +177,8 @@ const commandsModule = ({
         const segmentMetadata = {
           SegmentNumber: segmentIndex.toString(),
           SegmentLabel: label,
-          SegmentAlgorithmType: segment?.algorithmType || 'MANUAL',
-          SegmentAlgorithmName: segment?.algorithmName || 'OHIF Brush',
+          SegmentAlgorithmType: segment.algorithmType || 'MANUAL',
+          SegmentAlgorithmName: segment.algorithmName || 'OHIF Brush',
           RecommendedDisplayCIELabValue,
           SegmentedPropertyCategoryCodeSequence: {
             CodeValue: 'T-D0050',
@@ -220,7 +235,9 @@ const commandsModule = ({
      * otherwise throws an error.
      */
     storeSegmentation: async ({ segmentationId, dataSource, modality = 'SEG' }) => {
-      const segmentation = segmentationService.getSegmentation(segmentationId);
+      const segmentation = segmentationService.getSegmentation(segmentationId) as
+        | OHIFSegmentation
+        | undefined;
 
       if (!segmentation) {
         throw new Error('No segmentation found');
@@ -297,13 +314,13 @@ const commandsModule = ({
 
     generateContour: async args => {
       const { segmentationId, options } = args;
-      const segmentations = segmentationService.getSegmentation(segmentationId);
+      const segmentations = segmentationService.getSegmentation(segmentationId) as OHIFSegmentation;
 
       // inject colors to the segmentIndex
       const firstRepresentation =
         segmentationService.getRepresentationsForSegmentation(segmentationId)[0];
       Object.entries(segmentations.segments).forEach(([segmentIndex, segment]) => {
-        segment.color = segmentationService.getSegmentColor(
+        (segment as OHIFSegment).color = segmentationService.getSegmentColor(
           firstRepresentation.viewportId,
           segmentationId,
           Number(segmentIndex)

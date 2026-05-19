@@ -70,7 +70,7 @@ export default class ToolGroupService {
    * @param toolGroupId - Optional ID of the tool group to retrieve.
    * @returns The tool group or undefined if it is not found.
    */
-  public getToolGroup(toolGroupId?: string): Types.IToolGroup | void {
+  public getToolGroup(toolGroupId?: string): Types.IToolGroup | undefined {
     let toolGroupIdToUse = toolGroupId;
 
     if (!toolGroupIdToUse) {
@@ -105,7 +105,7 @@ export default class ToolGroupService {
     return Array.from(this.toolGroupIds);
   }
 
-  public getToolGroupForViewport(viewportId: string): Types.IToolGroup | void {
+  public getToolGroupForViewport(viewportId: string): Types.IToolGroup | undefined {
     const renderingEngine = this.cornerstoneViewportService.getRenderingEngine();
     return ToolGroupManager.getToolGroupForViewport(viewportId, renderingEngine.id);
   }

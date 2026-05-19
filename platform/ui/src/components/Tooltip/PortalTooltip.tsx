@@ -6,13 +6,26 @@ import Card from './PortalTooltipCard';
 
 const portalNodes = {};
 
+type PortalTooltipProps = {
+  parent: string | HTMLElement;
+  active?: boolean;
+  group?: string;
+  tooltipTimeout?: number;
+  children?: React.ReactNode;
+  position?: string;
+  arrow?: string | null;
+  align?: string | null;
+  style?: Record<string, any>;
+  useHover?: boolean;
+};
+
 /**
  * A portal based tooltip component.
  *
  * This component has been repurposed and modified
  * for OHIF usage: https://github.com/romainberger/react-portal-tooltip
  */
-export default class PortalTooltip extends React.Component {
+export default class PortalTooltip extends React.Component<PortalTooltipProps> {
   static propTypes = {
     parent: PropTypes.oneOfType([PropTypes.string, PropTypes.object]).isRequired,
     active: PropTypes.bool,

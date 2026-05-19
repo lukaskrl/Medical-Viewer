@@ -6,6 +6,25 @@ import { ThumbnailList } from '../ThumbnailList';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../Accordion';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../Tooltip';
 
+type StudyItemProps = {
+  date?: string;
+  description?: string;
+  numInstances?: number;
+  modalities?: string;
+  isActive?: boolean;
+  onClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
+  isExpanded?: boolean;
+  displaySets?: any[];
+  activeDisplaySetInstanceUIDs?: string[];
+  onClickThumbnail?: (uid: string) => void;
+  onDoubleClickThumbnail?: (uid: string) => void;
+  onClickUntrack?: (uid: string) => void;
+  viewPreset?: string;
+  ThumbnailMenuItems?: React.ComponentType<any>;
+  StudyMenuItems?: React.ComponentType<any>;
+  StudyInstanceUID?: string;
+};
+
 const StudyItem = ({
   date,
   description,
@@ -23,7 +42,7 @@ const StudyItem = ({
   ThumbnailMenuItems,
   StudyMenuItems,
   StudyInstanceUID,
-}: withAppTypes) => {
+}: StudyItemProps) => {
   return (
     <Accordion
       type="single"

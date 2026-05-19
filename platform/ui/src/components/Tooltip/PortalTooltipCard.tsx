@@ -4,13 +4,35 @@ import PropTypes from 'prop-types';
 const FG_SIZE = 8;
 const BG_SIZE = 9;
 
+type PortalTooltipCardProps = {
+  parentEl?: HTMLElement | null;
+  active?: boolean;
+  position?: 'top' | 'right' | 'bottom' | 'left';
+  arrow?: 'center' | 'top' | 'right' | 'bottom' | 'left' | null;
+  align?: 'center' | 'right' | 'left' | null;
+  style?: { style?: Record<string, any>; arrowStyle?: Record<string, any> };
+  useHover?: boolean;
+  children?: React.ReactNode;
+  tooltipTimeout?: number;
+  onMouseOut?: (e: React.MouseEvent) => void;
+};
+
+type PortalTooltipCardState = {
+  hover: boolean;
+  width: number;
+  height: number;
+};
+
 /**
  * A portal based tooltip card component.
  *
  * This component has been repurposed and modified
  * for OHIF usage: https://github.com/romainberger/react-portal-tooltip
  */
-export default class PortalTooltipCard extends Component {
+export default class PortalTooltipCard extends Component<
+  PortalTooltipCardProps,
+  PortalTooltipCardState
+> {
   static propTypes = {
     active: PropTypes.bool,
     position: PropTypes.oneOf(['top', 'right', 'bottom', 'left']),
@@ -44,7 +66,7 @@ export default class PortalTooltipCard extends Component {
     borderColor: 'rgba(58, 63, 153, 1)', // secondary-light
   };
 
-  rootRef = React.createRef();
+  rootRef = React.createRef<HTMLDivElement>();
 
   getGlobalStyle() {
     if (!this.props.parentEl) {
@@ -66,7 +88,7 @@ export default class PortalTooltipCard extends Component {
     return this.mergeStyle(style, this.props.style.style);
   }
 
-  getBaseArrowStyle() {
+  getBaseArrowStyle(): Record<string, any> {
     return {
       position: 'absolute',
       content: '""',
@@ -206,7 +228,7 @@ export default class PortalTooltipCard extends Component {
     let scrollX = window.scrollX !== undefined ? window.scrollX : window.pageXOffset;
     let top = scrollY + tooltipPosition.top;
     let left = scrollX + tooltipPosition.left;
-    let style = {};
+    const style: Record<string, any> = {};
 
     if (this.rootRef.current) {
       const newHeight = this.rootRef.current.offsetHeight / 2;

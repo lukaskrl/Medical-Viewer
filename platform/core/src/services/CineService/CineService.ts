@@ -26,7 +26,15 @@ class CineService extends PubSubService {
     return this.serviceImplementation._getState();
   }
 
-  public setCine({ id, frameRate, isPlaying }) {
+  public setCine({
+    id,
+    frameRate,
+    isPlaying,
+  }: {
+    id: string | number;
+    frameRate?: number;
+    isPlaying?: boolean;
+  }) {
     return this.serviceImplementation._setCine({ id, frameRate, isPlaying });
   }
 

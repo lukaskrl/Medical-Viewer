@@ -6,6 +6,32 @@ import { Icons } from '../Icons';
 import { DisplaySetMessageListTooltip } from '../DisplaySetMessageListTooltip';
 import { TooltipTrigger, TooltipContent, Tooltip } from '../Tooltip';
 
+type ThumbnailProps = {
+  displaySetInstanceUID: string;
+  className?: string;
+  imageSrc?: string;
+  imageAltText?: string;
+  description?: string;
+  seriesNumber?: string | number;
+  numInstances?: number;
+  loadingProgress?: number;
+  countIcon?: string;
+  messages?: any;
+  isActive?: boolean;
+  onClick?: (e?: any) => void;
+  onDoubleClick?: (e?: any) => void;
+  thumbnailType?: string;
+  modality?: string;
+  viewPreset?: string;
+  isHydratedForDerivedDisplaySet?: boolean;
+  isTracked?: boolean;
+  canReject?: boolean;
+  dragData?: Record<string, any>;
+  onReject?: () => void;
+  onClickUntrack?: () => void;
+  ThumbnailMenuItems?: React.ComponentType<any>;
+};
+
 /**
  * Display a thumbnail for a display set.
  */
@@ -32,8 +58,8 @@ const Thumbnail = ({
   dragData = {},
   onReject = () => {},
   onClickUntrack = () => {},
-  ThumbnailMenuItems = () => {},
-}: withAppTypes): React.ReactNode => {
+  ThumbnailMenuItems = (() => null) as unknown as React.ComponentType<any>,
+}: ThumbnailProps): React.ReactNode => {
   // TODO: We should wrap our thumbnail to create a "DraggableThumbnail", as
   // this will still allow for "drag", even if there is no drop target for the
   // specified item.

@@ -1,3 +1,4 @@
+import type React from 'react';
 import {
   getEnabledElement,
   StackViewport,
@@ -146,7 +147,7 @@ function commandsModule({
 
   function _getActiveViewportToolGroupId() {
     const viewport = _getActiveViewportEnabledElement();
-    return toolGroupService.getToolGroupForViewport(viewport.id);
+    return toolGroupService.getToolGroupForViewport(viewport.viewportId);
   }
 
   function _getActiveSegmentationInfo() {
@@ -567,7 +568,10 @@ function commandsModule({
         return results;
       }
     },
-    runSegmentBidirectional: async ({ segmentationId, segmentIndex } = {}) => {
+    runSegmentBidirectional: async ({
+      segmentationId,
+      segmentIndex,
+    }: { segmentationId?: string; segmentIndex?: number } = {}) => {
       // Get active segmentation if not specified
       const targetSegmentation =
         segmentationId && segmentIndex
@@ -800,7 +804,9 @@ function commandsModule({
      */
     _handleMeasurementLabelDialog: async uid => {
       const labelConfig = customizationService.getCustomization('measurementLabels');
-      const renderContent = customizationService.getCustomization('ui.labellingComponent');
+      const renderContent = customizationService.getCustomization(
+        'ui.labellingComponent'
+      ) as React.FC<any>;
       const measurement = measurementService.getMeasurement(uid);
 
       if (!measurement) {
@@ -975,7 +981,7 @@ function commandsModule({
 
       const { representationData } = segmentation;
       const { Labelmap } = representationData;
-      const { referencedImageIds } = Labelmap;
+      const { referencedImageIds } = Labelmap as { referencedImageIds?: string[] };
 
       const firstImageId = referencedImageIds[0];
 
@@ -1021,7 +1027,9 @@ function commandsModule({
     },
     arrowTextCallback: async ({ callback, data }) => {
       const labelConfig = customizationService.getCustomization('measurementLabels');
-      const renderContent = customizationService.getCustomization('ui.labellingComponent');
+      const renderContent = customizationService.getCustomization(
+        'ui.labellingComponent'
+      ) as React.FC<any>;
 
       if (!labelConfig) {
         const label = await callInputDialog({
@@ -1086,7 +1094,7 @@ function commandsModule({
           volumeId
         );
       } else {
-        viewport.setProperties({
+        (viewport as StackViewport).setProperties({
           voiRange: {
             upper,
             lower,
@@ -1101,7 +1109,7 @@ function commandsModule({
         colorbarService.removeColorbar(viewportId);
         return;
       }
-      colorbarService.addColorbar(viewportId, displaySetInstanceUIDs, options);
+      colorbarService.addColorbar(viewportId, displaySetInstanceUIDs, options as any);
     },
     setWindowLevel(props) {
       const { toolGroupId } = props;
@@ -1253,7 +1261,9 @@ function commandsModule({
       const activeToolName = toolGroup.getActivePrimaryMouseButtonTool();
 
       if (activeToolName) {
-        const activeToolOptions = toolGroup.getToolConfiguration(activeToolName);
+        const activeToolOptions = toolGroup.getToolConfiguration(activeToolName) as
+          | { disableOnPassive?: boolean }
+          | undefined;
         activeToolOptions?.disableOnPassive
           ? toolGroup.setToolDisabled(activeToolName)
           : toolGroup.setToolPassive(activeToolName);
@@ -1448,7 +1458,7 @@ function commandsModule({
       const options = { imageIndex: jumpIndex };
       csUtils.jumpToSlice(viewport.element, options);
     },
-    scroll: (options: ToolTypes.ScrollOptions) => {
+    scroll: (options: { delta?: number; direction?: number; loop?: boolean }) => {
       const enabledElement = _getActiveViewportEnabledElement();
       // Allow either or direction for consistency in scroll implementation
       options.delta ??= options.direction || 1;
@@ -1460,7 +1470,7 @@ function commandsModule({
 
       const { viewport } = enabledElement;
 
-      csUtils.scroll(viewport, options);
+      csUtils.scroll(viewport, options as Parameters<typeof csUtils.scroll>[1]);
     },
     setViewportColormap: ({
       viewportId,
@@ -1479,9 +1489,10 @@ function commandsModule({
 
       if (displaySetsInfo) {
         // Find the display set that matches the given UID
-        const matchingDisplaySet = displaySetsInfo.find(
-          displaySet => displaySet.displaySetInstanceUID === displaySetInstanceUID
-        );
+        const matchingDisplaySet = (displaySetsInfo as Array<{
+          displaySetInstanceUID: string;
+          displaySetOptions?: { options?: { colormap?: { opacity?: number } } };
+        }>).find(displaySet => displaySet.displaySetInstanceUID === displaySetInstanceUID);
         // If a matching display set is found, update the opacity with its value
         hpOpacity = matchingDisplaySet?.displaySetOptions?.options?.colormap?.opacity;
       }
@@ -1563,11 +1574,13 @@ function commandsModule({
         return;
       }
 
-      const prevConfig = toolGroup?.getToolConfiguration(toolName);
+      const prevConfig = toolGroup?.getToolConfiguration(toolName) as
+        | Record<string, unknown>
+        | undefined;
       toolGroup?.setToolConfiguration(
         toolName,
         {
-          ...prevConfig,
+          ...(prevConfig || {}),
           sourceViewportId: viewportId,
         },
         true // overwrite
@@ -1592,17 +1605,17 @@ function commandsModule({
 
     attachProtocolViewportDataListener: ({ protocol, stageIndex }) => {
       const EVENT = cornerstoneViewportService.EVENTS.VIEWPORT_DATA_CHANGED;
-      const command = protocol.callbacks.onViewportDataInitialized;
+      const command = protocol.callbacks.onViewportDataInitialized as unknown[];
       const numPanes = protocol.stages?.[stageIndex]?.viewports.length ?? 1;
       let numPanesWithData = 0;
       const { unsubscribe } = cornerstoneViewportService.subscribe(EVENT, evt => {
         numPanesWithData++;
 
         if (numPanesWithData === numPanes) {
-          commandsManager.run(...command);
+          (commandsManager.run as (...args: unknown[]) => unknown)(...command);
 
           // Unsubscribe from the event
-          unsubscribe(EVENT);
+          (unsubscribe as (event?: unknown) => void)(EVENT);
         }
       });
     },
@@ -1612,7 +1625,7 @@ function commandsModule({
       if (!viewport) {
         return;
       }
-      viewport.setProperties({
+      (viewport as VolumeViewport).setProperties({
         preset,
       });
       viewport.render();
@@ -1666,7 +1679,7 @@ function commandsModule({
 
       return viewport.getActors().some(actorEntry => {
         const isVolumeActor = displaySetUIDs.some(uid => actorEntry.referencedId?.includes(uid));
-        return isVolumeActor && actorEntry.actor?.getVisibility();
+        return isVolumeActor && (actorEntry.actor as { getVisibility?: () => boolean })?.getVisibility?.();
       });
     },
 
@@ -1679,7 +1692,11 @@ function commandsModule({
     setVolumeRenderingQulaity: ({ viewportId, volumeQuality }) => {
       const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
       const { actor } = viewport.getActors()[0];
-      const mapper = actor.getMapper();
+      const mapper = actor.getMapper() as {
+        getInputData(): { getDimensions(): number[]; getSpacing(): number[] };
+        setMaximumSamplesPerRay(n: number): void;
+        setSampleDistance(n: number): void;
+      };
       const image = mapper.getInputData();
       const dims = image.getDimensions();
       const spacing = image.getSpacing();
@@ -1703,7 +1720,9 @@ function commandsModule({
     shiftVolumeOpacityPoints: ({ viewportId, shift }) => {
       const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
       const { actor } = viewport.getActors()[0];
-      const ofun = actor.getProperty().getScalarOpacity(0);
+      const ofun = (actor.getProperty() as { getScalarOpacity(idx: number): any }).getScalarOpacity(
+        0
+      );
 
       const opacityPointValues = []; // Array to hold values
       // Gather Existing Values
@@ -1739,7 +1758,12 @@ function commandsModule({
     setVolumeLighting: ({ viewportId, options }) => {
       const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
       const { actor } = viewport.getActors()[0];
-      const property = actor.getProperty();
+      const property = actor.getProperty() as {
+        setShade(v: boolean): void;
+        setAmbient(v: number): void;
+        setDiffuse(v: number): void;
+        setSpecular(v: number): void;
+      };
 
       if (options.shade !== undefined) {
         property.setShade(options.shade);
@@ -2257,7 +2281,7 @@ function commandsModule({
         actions.setToolActiveToolbar({
           toolName: 'CircularBrushForAutoSegmentAI',
           toolGroupIds: toolGroupIds,
-        });
+        } as Parameters<typeof actions.setToolActiveToolbar>[0]);
       } else {
         toolGroupIds.forEach(toolGroupId => {
           const toolGroup = cornerstoneTools.ToolGroupManager.getToolGroup(toolGroupId);
@@ -2349,7 +2373,7 @@ function commandsModule({
         return;
       }
 
-      viewport.setOrientation(orientation);
+      (viewport as VolumeViewport).setOrientation(orientation);
       viewport.render();
 
       // update the orientation in the viewport info
@@ -2524,7 +2548,8 @@ function commandsModule({
 
       // Now set the interpolation configuration for the other tools specified.
       if (toolNames) {
-        Object.values(toolGroup.getToolInstances()).forEach(toolInstance => {
+        Object.values(toolGroup.getToolInstances()).forEach(rawInstance => {
+          const toolInstance = rawInstance as { toolName: string };
           if (toolNames?.includes(toolInstance.toolName)) {
             toolGroup.setToolConfiguration(toolInstance.toolName, interpolationConfig);
           }

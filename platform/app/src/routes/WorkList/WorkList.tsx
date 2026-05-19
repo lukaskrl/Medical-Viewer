@@ -62,7 +62,16 @@ function WorkList({
   dataPath,
   onRefresh,
   servicesManager,
-}: withAppTypes) {
+}: {
+  data: any[];
+  dataTotal: number;
+  isLoadingData: boolean;
+  dataSource: any;
+  hotkeysManager: any;
+  dataPath?: string;
+  onRefresh: () => void;
+  servicesManager: any;
+}) {
   const { show, hide } = useModal();
   const { t } = useTranslation();
   // ~ Modes
@@ -186,7 +195,7 @@ function WorkList({
       return;
     }
 
-    const queryString = {};
+    const queryString: Record<string, any> = {};
     Object.keys(defaultFilterValues).forEach(key => {
       const defaultValue = defaultFilterValues[key];
       const currValue = debouncedFilterValues[key];

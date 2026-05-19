@@ -6,7 +6,7 @@ export function generateSegmentationCSVReport(
   segmentationData,
   info: {
     reference: {
-      SeriesNumber: string;
+      SeriesNumber: string | number;
       SeriesInstanceUID: string;
       StudyInstanceUID: string;
       SeriesDate: string;

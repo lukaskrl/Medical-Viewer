@@ -218,7 +218,7 @@ function _getDisplaySetsFromSeries(
 
   const isNiftiSegmentation = instances.some(instance => instance?.isNiftiSegmentation);
 
-  const displaySet = {
+  const displaySet: Record<string, any> = {
     Modality: 'SEG',
     loading: false,
     isReconstructable: false,
@@ -322,7 +322,7 @@ function _load(
 
   // We don't want to fire multiple loads, so we'll wait for the first to finish
   // and also return the same promise to any other callers.
-  loadPromises[SOPInstanceUID] = new Promise(async (resolve, reject) => {
+  loadPromises[SOPInstanceUID] = new Promise<void>(async (resolve, reject) => {
     if (!segDisplaySet.segments || Object.keys(segDisplaySet.segments).length === 0) {
       try {
         if (segDisplaySet.instance?.isNiftiSegmentation) {
@@ -364,10 +364,10 @@ async function _loadSegments({
   servicesManager,
   segDisplaySet,
   headers,
-}: withAppTypes) {
+}: withAppTypes<{ segDisplaySet: any; headers: any }>) {
   const utilityModule = extensionManager.getModuleEntry(
     '@ohif/extension-cornerstone.utilityModule.common'
-  );
+  ) as { exports: { dicomLoaderService: any } };
 
   const { segmentationService, uiNotificationService } = servicesManager.services;
 
@@ -376,7 +376,7 @@ async function _loadSegments({
 
   const referencedDisplaySet = servicesManager.services.displaySetService.getDisplaySetByUID(
     segDisplaySet.referencedDisplaySetInstanceUID
-  );
+  ) as { imageIds?: string[]; images?: { imageId: string }[] } | undefined;
 
   if (!referencedDisplaySet) {
     throw new Error('referencedDisplaySet is missing for SEG');

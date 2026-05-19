@@ -12,7 +12,12 @@ function OHIFCornerstoneSEGViewport(props: withAppTypes) {
   const { servicesManager, commandsManager } = useSystem();
   const { children, displaySets, viewportOptions } = props as {
     children: React.ReactNode;
-    displaySets: AppTypes.DisplaySet[];
+    displaySets: Array<
+      AppTypes.DisplaySet & {
+        referencedDisplaySetInstanceUID?: string;
+        firstSegmentedSliceImageId?: string;
+      }
+    >;
     viewportOptions: AppTypes.ViewportOptions;
   };
   const viewportId = viewportOptions.viewportId;
@@ -22,7 +27,7 @@ function OHIFCornerstoneSEGViewport(props: withAppTypes) {
 
   const LoadingIndicatorTotalPercent = customizationService.getCustomization(
     'ui.loadingIndicatorTotalPercent'
-  );
+  ) as React.ComponentType<any>;
 
   const toolGroupId = `${SEG_TOOLGROUP_BASE_NAME}-${viewportId}`;
 
@@ -68,7 +73,9 @@ function OHIFCornerstoneSEGViewport(props: withAppTypes) {
       'missingReferenceDisplaySetHandler'
     );
     if (typeof missingReferenceDisplaySetHandler === 'function') {
-      const { handled } = missingReferenceDisplaySetHandler();
+      const { handled } = (missingReferenceDisplaySetHandler as unknown as () => {
+        handled: boolean;
+      })();
       if (handled) {
         return;
       }
@@ -107,7 +114,7 @@ function OHIFCornerstoneSEGViewport(props: withAppTypes) {
           presentationIds: viewportOptions.presentationIds,
         }}
         onElementEnabled={evt => {
-          props.onElementEnabled?.(evt);
+          (props as { onElementEnabled?: (evt: unknown) => void }).onElementEnabled?.(evt);
         }}
       />
     );
@@ -144,7 +151,7 @@ function OHIFCornerstoneSEGViewport(props: withAppTypes) {
 
     const { unsubscribe } = segmentationService.subscribe(
       segmentationService.EVENTS.SEGMENTATION_LOADING_COMPLETE,
-      evt => {
+      (evt: { segDisplaySet?: { displaySetInstanceUID: string } }) => {
         if (evt.segDisplaySet?.displaySetInstanceUID === segDisplaySet?.displaySetInstanceUID) {
           setSegIsLoading(false);
         }
@@ -153,11 +160,14 @@ function OHIFCornerstoneSEGViewport(props: withAppTypes) {
           const { firstSegmentedSliceImageId } = segDisplaySet;
           const { presentationIds } = viewportOptions;
 
-          setPositionPresentation(presentationIds.positionPresentationId, {
-            viewReference: {
-              referencedImageId: firstSegmentedSliceImageId,
-            },
-          });
+          setPositionPresentation(
+            presentationIds.positionPresentationId,
+            {
+              viewReference: {
+                referencedImageId: firstSegmentedSliceImageId,
+              },
+            } as unknown as Parameters<typeof setPositionPresentation>[1]
+          );
         }
       }
     );
@@ -189,9 +199,11 @@ function OHIFCornerstoneSEGViewport(props: withAppTypes) {
   useEffect(() => {
     const onDisplaySetsRemovedSubscription = displaySetService.subscribe(
       displaySetService.EVENTS.DISPLAY_SETS_REMOVED,
-      ({ displaySetInstanceUIDs }) => {
+      ({ displaySetInstanceUIDs }: { displaySetInstanceUIDs: string[] }) => {
         const activeViewport = viewports.get(activeViewportId);
-        if (displaySetInstanceUIDs.includes(activeViewport.displaySetInstanceUID)) {
+        const activeDisplaySetUID = (activeViewport as { displaySetInstanceUIDs?: string[] })
+          ?.displaySetInstanceUIDs?.[0];
+        if (activeDisplaySetUID && displaySetInstanceUIDs.includes(activeDisplaySetUID)) {
           viewportGridService.setDisplaySetsForViewport({
             viewportId: activeViewportId,
             displaySetInstanceUIDs: [],
@@ -253,14 +265,16 @@ function OHIFCornerstoneSEGViewport(props: withAppTypes) {
     return null;
   }
 
-  if (children && children.length) {
-    childrenWithProps = children.map((child, index) => {
+  const childrenArray = Array.isArray(children) ? children : children ? [children] : [];
+  if (childrenArray.length) {
+    childrenWithProps = childrenArray.map((child, index) => {
       return (
         child &&
+        React.isValidElement(child) &&
         React.cloneElement(child, {
           viewportId,
           key: index,
-        })
+        } as React.Attributes)
       );
     });
   }
