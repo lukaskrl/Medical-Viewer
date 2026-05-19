@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useImageViewer } from '@ohif/ui-next';
-import { useSystem, utils } from '@ohif/core';
+import { useSystem, utils, DicomMetadataStore } from '@ohif/core';
 import { useNavigate } from 'react-router-dom';
 import { useViewportGrid, StudyBrowser, Separator } from '@ohif/ui-next';
+import { ViewerDicomUpload } from '@ohif/app';
 import { PanelStudyBrowserHeader } from './PanelStudyBrowserHeader';
 import { defaultActionIcons } from './constants';
 import MoreDropdownMenu from '../../Components/MoreDropdownMenu';
@@ -156,6 +157,62 @@ function PanelStudyBrowser({
 
     StudyInstanceUIDs.forEach(sid => fetchStudiesForPatient(sid));
   }, [StudyInstanceUIDs, dataSource, getStudiesForPatientByMRN, navigate]);
+
+  // Newly uploaded studies (added to DicomMetadataStore by ViewerDicomUpload)
+  // need to appear in this panel without re-running the hanging protocol.
+  // SERIES_ADDED fires once per study when the local data source replays its
+  // metadata — including the new uploads, which is when the study is fully
+  // queryable. Display sets are still created by the route-init's
+  // INSTANCES_ADDED listener, so we only need to surface the study row here.
+  useEffect(() => {
+    const subscription = DicomMetadataStore.subscribe(
+      DicomMetadataStore.EVENTS.SERIES_ADDED,
+      ({ StudyInstanceUID, madeInClient }) => {
+        if (!StudyInstanceUID || !madeInClient) {
+          return;
+        }
+        const study = DicomMetadataStore.getStudy(StudyInstanceUID) as any;
+        if (!study) {
+          return;
+        }
+        const firstInstance = study.series?.[0]?.instances?.[0];
+        if (!firstInstance) {
+          return;
+        }
+        const modalities = new Set<string>();
+        let numInstances = 0;
+        study.series.forEach((s: any) => {
+          numInstances += s.instances.length;
+          if (s.instances[0]?.Modality) {
+            modalities.add(s.instances[0].Modality);
+          }
+        });
+
+        const entry = {
+          studyInstanceUid: StudyInstanceUID,
+          date: formatDate(firstInstance.StudyDate) || '',
+          description: firstInstance.StudyDescription,
+          modalities: Array.from(modalities).join('/'),
+          numInstances,
+        };
+
+        setStudyDisplayList(prevArray => {
+          if (prevArray.find(it => it.studyInstanceUid === StudyInstanceUID)) {
+            return prevArray;
+          }
+          return [...prevArray, entry];
+        });
+
+        setExpandedStudyInstanceUIDs(prev =>
+          prev.includes(StudyInstanceUID) ? prev : [...prev, StudyInstanceUID]
+        );
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   // ~~ Initial Thumbnails
   useEffect(() => {
@@ -399,6 +456,26 @@ function PanelStudyBrowser({
 
   const activeDisplaySetInstanceUIDs = viewports.get(activeViewportId)?.displaySetInstanceUIDs;
 
+  const getExistingStudyOptionsForUpload = useCallback(() => {
+    const uids = DicomMetadataStore.getStudyInstanceUIDs() as string[];
+    return uids.reduce((acc: any[], StudyInstanceUID) => {
+      const study = DicomMetadataStore.getStudy(StudyInstanceUID) as any;
+      if (!study) {
+        return acc;
+      }
+      const firstSeries = study.series?.[0];
+      const description =
+        firstSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
+      const seriesDescription = firstSeries?.instances?.[0]?.SeriesDescription || '';
+      acc.push({
+        StudyInstanceUID,
+        SeriesInstanceUID: firstSeries?.SeriesInstanceUID,
+        label: seriesDescription ? `${description} / ${seriesDescription}` : description,
+      });
+      return acc;
+    }, []);
+  }, []);
+
   return (
     <>
       <>
@@ -415,32 +492,40 @@ function PanelStudyBrowser({
         />
       </>
 
-      <StudyBrowser
-        tabs={tabs}
-        servicesManager={servicesManager}
-        activeTabName={activeTabName}
-        expandedStudyInstanceUIDs={expandedStudyInstanceUIDs}
-        onClickStudy={_handleStudyClick}
-        onClickTab={clickedTabName => {
-          setActiveTabName(clickedTabName);
-        }}
-        onClickUntrack={onClickUntrack}
-        onClickThumbnail={() => {}}
-        onDoubleClickThumbnail={onDoubleClickThumbnailHandler}
-        activeDisplaySetInstanceUIDs={activeDisplaySetInstanceUIDs}
-        showSettings={actionIcons.find(icon => icon.id === 'settings')?.value}
-        viewPresets={viewPresets}
-        ThumbnailMenuItems={MoreDropdownMenu({
-          commandsManager,
-          servicesManager,
-          menuItemsKey: 'studyBrowser.thumbnailMenuItems',
-        })}
-        StudyMenuItems={MoreDropdownMenu({
-          commandsManager,
-          servicesManager,
-          menuItemsKey: 'studyBrowser.studyMenuItems',
-        })}
-      />
+      <ViewerDicomUpload
+        dataSource={dataSource}
+        variant="inline"
+        getExistingStudyOptions={getExistingStudyOptionsForUpload}
+      >
+        <div className="min-h-0 flex-1 overflow-auto">
+          <StudyBrowser
+            tabs={tabs}
+            servicesManager={servicesManager}
+            activeTabName={activeTabName}
+            expandedStudyInstanceUIDs={expandedStudyInstanceUIDs}
+            onClickStudy={_handleStudyClick}
+            onClickTab={clickedTabName => {
+              setActiveTabName(clickedTabName);
+            }}
+            onClickUntrack={onClickUntrack}
+            onClickThumbnail={() => {}}
+            onDoubleClickThumbnail={onDoubleClickThumbnailHandler}
+            activeDisplaySetInstanceUIDs={activeDisplaySetInstanceUIDs}
+            showSettings={actionIcons.find(icon => icon.id === 'settings')?.value}
+            viewPresets={viewPresets}
+            ThumbnailMenuItems={MoreDropdownMenu({
+              commandsManager,
+              servicesManager,
+              menuItemsKey: 'studyBrowser.thumbnailMenuItems',
+            })}
+            StudyMenuItems={MoreDropdownMenu({
+              commandsManager,
+              servicesManager,
+              menuItemsKey: 'studyBrowser.studyMenuItems',
+            })}
+          />
+        </div>
+      </ViewerDicomUpload>
     </>
   );
 }

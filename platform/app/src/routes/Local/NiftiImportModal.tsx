@@ -54,6 +54,10 @@ function NiftiImportModal({ files, studies = [], onConfirm, onCancel }: NiftiImp
       .filter(entry => entry.kind === NIFTI_IMPORT_KINDS.VOLUME)
       .map(entry => entry.file.name);
 
+    const defaultStudyReference = studies[0]
+      ? `${STUDY_PREFIX}${studies[0].StudyInstanceUID}`
+      : NO_REFERENCE;
+
     return inferred.map(entry => {
       if (entry.kind !== NIFTI_IMPORT_KINDS.SEGMENTATION) {
         return entry;
@@ -64,7 +68,11 @@ function NiftiImportModal({ files, studies = [], onConfirm, onCancel }: NiftiImp
         name => normalizeLookupName(name) === normalizeLookupName(entry.file.name)
       );
 
-      return { ...entry, reference: match ? `${FILE_PREFIX}${match}` : NO_REFERENCE };
+      if (match) {
+        return { ...entry, reference: `${FILE_PREFIX}${match}` };
+      }
+
+      return { ...entry, reference: defaultStudyReference };
     });
   });
 

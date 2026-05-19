@@ -19,6 +19,8 @@ import { modes as defaultModes, extensions as defaultExtensions } from './plugin
 import loadDynamicConfig from './loadDynamicConfig';
 export { history } from './utils/history';
 export { preserveQueryParameters, preserveQueryStrings } from './utils/preserveQueryParameters';
+export { default as ViewerDicomUpload } from './routes/Local/ViewerDicomUpload';
+export { default as ViewerDicomUploadButton } from './routes/Local/ViewerDicomUploadButton';
 
 loadDynamicConfig(window.config).then(config_json => {
   // Reset Dynamic config if defined

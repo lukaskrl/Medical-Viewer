@@ -16,6 +16,7 @@ export type SidePanelWithServicesProps = {
   expandedInsideBorderSize?: number;
   collapsedInsideBorderSize?: number;
   collapsedOutsideBorderSize?: number;
+  headerExtraAction?: React.ReactNode;
 };
 
 const SidePanelWithServices = ({

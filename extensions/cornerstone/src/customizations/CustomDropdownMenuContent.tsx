@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useSystem } from '@ohif/core/src';
 import { ExportSegmentationSubMenuItem } from '../components/ExportSegmentationSubMenuItem';
+import { DownloadSegmentationSubMenuItem } from '../components/DownloadSegmentationSubMenuItem';
 
 /**
  * Custom dropdown menu component for segmentation panel that uses context for data
@@ -67,6 +68,15 @@ export const CustomDropdownMenuContent = () => {
     downloadCSVSegmentationReport: segmentationId => {
       commandsManager.run('downloadCSVSegmentationReport', { segmentationId });
     },
+    downloadSegmentationDicom: segmentationId => {
+      commandsManager.run('downloadSegmentation', { segmentationId });
+    },
+    downloadSegmentationNifti: segmentationId => {
+      commandsManager.run('downloadSegmentationNifti', { segmentationId });
+    },
+    downloadSegmentationNrrd: segmentationId => {
+      commandsManager.run('downloadSegmentationNrrd', { segmentationId });
+    },
   };
 
   return (
@@ -95,6 +105,12 @@ export const CustomDropdownMenuContent = () => {
         <span className="pl-2">{t('Rename')}</span>
       </DropdownMenuItem>
       <ExportSegmentationSubMenuItem
+        segmentationId={segmentationId}
+        segmentationRepresentationType={segmentationRepresentationTypes?.[0]}
+        allowExport={allowExport}
+        actions={actions}
+      />
+      <DownloadSegmentationSubMenuItem
         segmentationId={segmentationId}
         segmentationRepresentationType={segmentationRepresentationTypes?.[0]}
         allowExport={allowExport}

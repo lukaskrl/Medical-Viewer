@@ -58,6 +58,7 @@ import { throttledComputeSurfaceData } from './utils/throttledPolySegSurface';
 const PROBE_TOOL_NAMES = new Set([ProbeTool.toolName, DragProbeTool.toolName]);
 const CLOSEST_SLICE_EPSILON_MM = 1e-3;
 let isProbeNearPlanePatched = false;
+let isBrushRejectPreviewPatched = false;
 
 function patchProbeNearPlaneVisibility() {
   if (isProbeNearPlanePatched) {
@@ -148,8 +149,57 @@ function patchProbeNearPlaneVisibility() {
   isProbeNearPlanePatched = true;
 }
 
+/**
+ * Short-circuits BrushTool.rejectPreview when preview mode is disabled.
+ *
+ * The upstream rejectPreview runs on every tool switch (via
+ * `onSetToolPassive → disableCursor → rejectPreview`) once the user has
+ * dragged the brush even once — because `_previewData.element` is populated
+ * during normal drags, not just preview hovers. Its expensive line is
+ * `applyActiveStrategyCallback(RejectPreview)`, which invokes the strategy's
+ * RejectPreview composition. That composition (preview.js) walks the entire
+ * segmentation voxel manager comparing each voxel against
+ * `operationData.previewSegmentIndex` — when preview is off, that index is
+ * undefined and the scan is pure waste. On NIfTI-sized labelmaps this is
+ * 10+ seconds per switch.
+ *
+ * Fix: when `configuration.preview.enabled === false`, perform only the
+ * cheap parts of rejectPreview (`doneEditMemo` + reset preview flags) and
+ * skip the strategy callback. Behavior with preview enabled is unchanged.
+ */
+function patchBrushRejectPreviewWhenDisabled() {
+  if (isBrushRejectPreviewPatched) {
+    return;
+  }
+
+  const origRejectPreview = BrushTool.prototype.rejectPreview;
+  if (typeof origRejectPreview !== 'function') {
+    return;
+  }
+
+  BrushTool.prototype.rejectPreview = function patchedRejectPreview(
+    element = this._previewData?.element
+  ) {
+    if (!element) {
+      return;
+    }
+    if (this.configuration?.preview?.enabled !== false) {
+      return origRejectPreview.call(this, element);
+    }
+    // Preview off: do the cheap state cleanup only, skip the full-volume scan.
+    this.doneEditMemo?.();
+    if (this._previewData) {
+      this._previewData.preview = null;
+      this._previewData.isDrag = false;
+    }
+  };
+
+  isBrushRejectPreviewPatched = true;
+}
+
 export default function initCornerstoneTools() {
   patchProbeNearPlaneVisibility();
+  patchBrushRejectPreviewWhenDisabled();
 
   CrosshairsTool.isAnnotation = false;
   LabelmapSlicePropagationTool.isAnnotation = false;

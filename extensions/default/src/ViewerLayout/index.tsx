@@ -8,6 +8,7 @@ import ViewerHeader from './ViewerHeader';
 import SidePanelWithServices from '../Components/SidePanelWithServices';
 import { Onboarding, ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@ohif/ui-next';
 import useResizablePanels from './ResizablePanelsHook';
+import { ViewerDicomUploadButton } from '@ohif/app';
 
 const resizableHandleClassName = 'mt-[1px] bg-background';
 
@@ -172,6 +173,7 @@ function ViewerLayout({
                     side="left"
                     isExpanded={!leftPanelClosedState}
                     servicesManager={servicesManager}
+                    headerExtraAction={<ViewerDicomUploadButton />}
                     {...leftPanelProps}
                   />
                 </ResizablePanel>

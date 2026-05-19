@@ -75,6 +75,10 @@ async function _loadNiftiSegments({ segDisplaySet, servicesManager }) {
       throw new Error('NIfTI SEG loading failed: unable to resolve referenced imageId');
     }
 
+    // Mutate the cached image so getReferenceVolumeForSegmentationVolume can
+    // resolve the reference volume during brush/labeling operations.
+    image.referencedImageId = referencedImageId;
+
     const imagePlaneModule = metaData.get('imagePlaneModule', referencedImageId);
     const columns = image.columns || image.width;
 

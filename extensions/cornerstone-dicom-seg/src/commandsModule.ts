@@ -6,6 +6,14 @@ import { adaptersRT, adaptersSEG } from '@cornerstonejs/adapters';
 import { createReportDialogPrompt, useUIStateStore } from '@ohif/extension-default';
 
 import PROMPT_RESPONSES from '../../default/src/utils/_shared/PROMPT_RESPONSES';
+import { extractSegmentationVolume } from './utils/extractSegmentationVolume';
+import { buildNiftiBuffer, gzipNifti } from './utils/niftiWriter';
+import { buildNrrdBuffer } from './utils/nrrdWriter';
+
+const { downloadBlob } = utils;
+
+const sanitizeFilename = (name: string): string =>
+  name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'segmentation';
 
 const getTargetViewport = ({ viewportId, viewportGridService }) => {
   const { viewports, activeViewportId } = viewportGridService.getState();
@@ -323,6 +331,46 @@ const commandsModule = ({
       await storeFn(dataset);
     },
 
+    /**
+     * Downloads a segmentation as a NIfTI file (.nii or .nii.gz).
+     *
+     * Builds a 3D labelmap from the segmentation's per-slice imageIds, derives
+     * geometry from the referenced source image metadata, and writes a
+     * single-file NIfTI-1. The affine is written so the volume appears in
+     * NIfTI's canonical RAS+ space.
+     */
+    downloadSegmentationNifti: ({ segmentationId, gzip = true }) => {
+      const volume = extractSegmentationVolume(segmentationId);
+      const niftiBuffer = buildNiftiBuffer(volume);
+      const baseName = sanitizeFilename(volume.label);
+
+      if (gzip) {
+        const gz = gzipNifti(niftiBuffer);
+        downloadBlob(new Blob([gz], { type: 'application/gzip' }), {
+          filename: `${baseName}.nii.gz`,
+        });
+      } else {
+        downloadBlob(new Blob([niftiBuffer], { type: 'application/octet-stream' }), {
+          filename: `${baseName}.nii`,
+        });
+      }
+    },
+
+    /**
+     * Downloads a segmentation as a NRRD file (.nrrd).
+     *
+     * The header records the geometry in DICOM LPS so the volume registers
+     * 1:1 with the source images in tools like 3D Slicer.
+     */
+    downloadSegmentationNrrd: ({ segmentationId }) => {
+      const volume = extractSegmentationVolume(segmentationId);
+      const nrrdBuffer = buildNrrdBuffer(volume);
+      const baseName = sanitizeFilename(volume.label);
+      downloadBlob(new Blob([nrrdBuffer], { type: 'application/octet-stream' }), {
+        filename: `${baseName}.nrrd`,
+      });
+    },
+
     toggleActiveSegmentationUtility: ({ itemId: buttonId }) => {
       const { uiState, setUIState } = useUIStateStore.getState();
       const isButtonActive = uiState['activeSegmentationUtility'] === buttonId;
@@ -342,6 +390,8 @@ const commandsModule = ({
     downloadSegmentation: actions.downloadSegmentation,
     storeSegmentation: actions.storeSegmentation,
     downloadRTSS: actions.downloadRTSS,
+    downloadSegmentationNifti: actions.downloadSegmentationNifti,
+    downloadSegmentationNrrd: actions.downloadSegmentationNrrd,
     toggleActiveSegmentationUtility: actions.toggleActiveSegmentationUtility,
   };
 

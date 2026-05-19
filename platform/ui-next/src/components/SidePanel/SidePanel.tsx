@@ -28,6 +28,11 @@ type SidePanelProps = {
   collapsedInsideBorderSize: number;
   collapsedOutsideBorderSize: number;
   tabs: any;
+  /**
+   * Optional element rendered next to the open/close icon in the panel header.
+   * Used by the viewer's left panel to mount the "add studies" upload trigger.
+   */
+  headerExtraAction?: React.ReactNode;
 };
 
 type StyleMap = {
@@ -195,6 +200,7 @@ const SidePanel = ({
   expandedInsideBorderSize = 4,
   collapsedInsideBorderSize = 8,
   collapsedOutsideBorderSize = 4,
+  headerExtraAction,
 }: SidePanelProps) => {
   const [panelOpen, setPanelOpen] = useState(isExpanded);
   const [activeTabIndex, setActiveTabIndex] = useState(activeTabIndexProp ?? 0);
@@ -344,18 +350,39 @@ const SidePanel = ({
     return (
       <div
         className={classnames(
-          'absolute flex cursor-pointer items-center justify-center',
+          'absolute flex items-center',
           side === 'left' ? 'right-0' : 'left-0'
         )}
         style={{ width: `${closeIconWidth}px` }}
-        onClick={() => {
-          updatePanelOpen(!panelOpen);
-        }}
-        data-cy={`side-panel-header-${side}`}
       >
-        {React.createElement(Icons[openStateIconName[side]] || Icons.MissingIcon, {
-          className: 'text-primary',
-        })}
+        <div
+          className="flex h-full w-full cursor-pointer items-center justify-center"
+          onClick={() => {
+            updatePanelOpen(!panelOpen);
+          }}
+          data-cy={`side-panel-header-${side}`}
+        >
+          {React.createElement(Icons[openStateIconName[side]] || Icons.MissingIcon, {
+            className: 'text-primary',
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const getHeaderExtraAction = () => {
+    if (!headerExtraAction) {
+      return null;
+    }
+    return (
+      <div
+        className={classnames(
+          'absolute flex items-center',
+          side === 'left' ? 'right-[30px]' : 'left-[30px]'
+        )}
+        onClick={e => e.stopPropagation()}
+      >
+        {headerExtraAction}
       </div>
     );
   };
@@ -366,6 +393,7 @@ const SidePanel = ({
     return (
       <>
         {getCloseIcon()}
+        {getHeaderExtraAction()}
         <div className={classnames('flex grow justify-center')}>
           <div className={classnames('bg-muted text-primary flex flex-wrap')}>
             {tabs.map((tab, tabIndex) => {
@@ -434,6 +462,7 @@ const SidePanel = ({
         onClick={() => updatePanelOpen(!panelOpen)}
       >
         {getCloseIcon()}
+        {getHeaderExtraAction()}
         <span>{tabs[0].label}</span>
       </div>
     );
