@@ -79,7 +79,16 @@ async function _loadNiftiSegments({ segDisplaySet, servicesManager }) {
     // resolve the reference volume during brush/labeling operations.
     image.referencedImageId = referencedImageId;
 
-    const imagePlaneModule = metaData.get('imagePlaneModule', referencedImageId);
+    // Use the seg image's own imagePlaneModule so that imagePositionPatient[2]
+    // reflects the actual NIfTI z-position for this slice. Falling back to the
+    // reference CT avoids a silent failure when metadata is missing, but the
+    // primary source must be the seg slice because the CT imageIds may be sorted
+    // in the opposite z-order (e.g. superior→inferior) relative to NIfTI frames
+    // (sorted inferior→superior by InstanceNumber), which would invert worldZ and
+    // send axial "jump to segment" to the mirrored slice.
+    const imagePlaneModule =
+      metaData.get('imagePlaneModule', image.imageId) ||
+      metaData.get('imagePlaneModule', referencedImageId);
     const columns = image.columns || image.width;
 
     for (let i = 0; i < scalarData.length; i++) {

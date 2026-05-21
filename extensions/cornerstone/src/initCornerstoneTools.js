@@ -50,6 +50,8 @@ import {
 import { getEnabledElement, VolumeViewport, utilities as csUtils } from '@cornerstonejs/core';
 import { LabelmapSlicePropagationTool, MarkerLabelmapTool } from '@cornerstonejs/ai';
 import * as polySeg from '@cornerstonejs/polymorphic-segmentation';
+import labelmapDisplay from '@cornerstonejs/tools/tools/displayTools/Labelmap/labelmapDisplay';
+import { getLabelmapActorEntries } from '@cornerstonejs/tools/segmentation/helpers/getSegmentationActor';
 
 import CalibrationLineTool from './tools/CalibrationLineTool';
 import ImageOverlayViewerTool from './tools/ImageOverlayViewerTool';
@@ -59,6 +61,7 @@ const PROBE_TOOL_NAMES = new Set([ProbeTool.toolName, DragProbeTool.toolName]);
 const CLOSEST_SLICE_EPSILON_MM = 1e-3;
 let isProbeNearPlanePatched = false;
 let isBrushRejectPreviewPatched = false;
+let isLabelmapRepresentationVisibilityPatched = false;
 
 function patchProbeNearPlaneVisibility() {
   if (isProbeNearPlanePatched) {
@@ -197,9 +200,60 @@ function patchBrushRejectPreviewWhenDisabled() {
   isBrushRejectPreviewPatched = true;
 }
 
+/**
+ * Makes the labelmap renderer respect `representation.visible` on the actor
+ * itself, not just on per-segment fill opacity.
+ *
+ * Upstream's `_setLabelmapColorAndOpacity` sets actor visibility from
+ * `(isActiveLabelmap || renderInactiveSegmentations)` and relies on
+ * per-segment outline-thickness 0 + fill-opacity 0 to suppress hidden
+ * segments. For the *active* labelmap with render mode = outline (or
+ * fill-and-outline), the boundary persists despite thickness 0 — the eye
+ * toggle hides the fill but leaves the contour drawn. Hiding the entire
+ * actor when the representation is off drops both fill and boundary
+ * together.
+ */
+function patchLabelmapRespectRepresentationVisibility() {
+  if (isLabelmapRepresentationVisibilityPatched) {
+    return;
+  }
+
+  const originalRender = labelmapDisplay.render;
+  if (typeof originalRender !== 'function') {
+    return;
+  }
+
+  labelmapDisplay.render = async function patchedRender(viewport, representation) {
+    await originalRender.call(this, viewport, representation);
+
+    if (!representation || representation.visible !== false || !viewport) {
+      return;
+    }
+
+    const entries = getLabelmapActorEntries(viewport.id, representation.segmentationId);
+    if (!entries?.length) {
+      return;
+    }
+
+    entries.forEach(entry => {
+      const actor = entry?.actor;
+      if (!actor) {
+        return;
+      }
+      actor.setVisibility(false);
+      actor.modified();
+    });
+
+    viewport.render();
+  };
+
+  isLabelmapRepresentationVisibilityPatched = true;
+}
+
 export default function initCornerstoneTools() {
   patchProbeNearPlaneVisibility();
   patchBrushRejectPreviewWhenDisabled();
+  patchLabelmapRespectRepresentationVisibility();
 
   CrosshairsTool.isAnnotation = false;
   LabelmapSlicePropagationTool.isAnnotation = false;

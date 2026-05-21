@@ -23,7 +23,16 @@ import {
   DialogTitle,
   DialogDescription,
 } from './Dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './Select';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from './Select';
 import { Clipboard } from './Clipboard';
 import { Combobox } from './Combobox';
 import { Popover, PopoverContent, PopoverTrigger, PopoverAnchor } from './Popover';
@@ -216,9 +225,12 @@ export {
   DropdownMenuRadioGroup,
   Onboarding,
   Select,
+  SelectGroup,
   SelectTrigger,
   SelectContent,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectValue,
   Tooltip,
   TooltipTrigger,
