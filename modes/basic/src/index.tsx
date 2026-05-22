@@ -59,6 +59,7 @@ export const cornerstone = {
   contourSegmentationPanel:
     '@ohif/extension-cornerstone.panelModule.panelSegmentationWithToolsContour',
   segmentation: '@ohif/extension-cornerstone.panelModule.panelSegmentation',
+  aiAssistantPanel: '@ohif/extension-cornerstone.panelModule.panelAIAssistant',
   viewport: '@ohif/extension-cornerstone.viewportModule.cornerstone',
 };
 
@@ -347,7 +348,7 @@ export const basicLayout = {
   props: {
     leftPanels: [ohif.thumbnailList],
     leftPanelResizable: true,
-    rightPanels: [cornerstone.labelMapSegmentationPanel, cornerstone.measurements],
+    rightPanels: [cornerstone.labelMapSegmentationPanel, cornerstone.measurements, cornerstone.aiAssistantPanel],
     rightPanelClosed: true,
     rightPanelResizable: true,
     viewports: [

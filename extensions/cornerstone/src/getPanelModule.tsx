@@ -4,6 +4,7 @@ import { Toolbox } from '@ohif/extension-default';
 import PanelSegmentation from './panels/PanelSegmentation';
 import ActiveViewportWindowLevel from './components/ActiveViewportWindowLevel';
 import PanelMeasurement from './panels/PanelMeasurement';
+import PanelAIAssistant from './panels/PanelAIAssistant';
 import { SegmentationRepresentations } from '@cornerstonejs/tools/enums';
 import i18n from '@ohif/i18n';
 
@@ -80,6 +81,13 @@ const getPanelModule = ({ commandsManager, servicesManager, extensionManager }: 
       iconLabel: 'Measure',
       label: 'Measurement',
       component: PanelMeasurement,
+    },
+    {
+      name: 'panelAIAssistant',
+      iconName: 'tab-ai-assistant',
+      iconLabel: 'AI',
+      label: 'AI Assistant',
+      component: () => <PanelAIAssistant servicesManager={servicesManager} />,
     },
     {
       name: 'panelSegmentation',

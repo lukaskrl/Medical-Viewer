@@ -208,6 +208,7 @@ function modeFactory({ modeConfiguration }) {
               rightPanels: [
                 cornerstone.labelMapSegmentationPanel,
                 cornerstone.contourSegmentationPanel,
+                cornerstone.aiAssistantPanel,
               ],
               rightPanelResizable: true,
               // leftPanelClosed: true,

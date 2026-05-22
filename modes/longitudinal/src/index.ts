@@ -32,7 +32,7 @@ export const longitudinalInstance = {
   props: {
     ...basicLayout.props,
     leftPanels: [tracked.thumbnailList],
-    rightPanels: [cornerstone.labelMapSegmentationPanel, tracked.measurements],
+    rightPanels: [cornerstone.labelMapSegmentationPanel, tracked.measurements, cornerstone.aiAssistantPanel],
     viewports: [
       {
         namespace: tracked.viewport,

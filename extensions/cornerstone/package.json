@@ -60,6 +60,7 @@
     "@cornerstonejs/labelmap-interpolation": "4.20.0",
     "@cornerstonejs/polymorphic-segmentation": "4.20.0",
     "@cornerstonejs/tools": "4.20.0",
+    "@google/generative-ai": "^0.24.1",
     "@icr/polyseg-wasm": "0.4.0",
     "@itk-wasm/morphological-contour-interpolation": "1.1.0",
     "@kitware/vtk.js": "34.15.1",
