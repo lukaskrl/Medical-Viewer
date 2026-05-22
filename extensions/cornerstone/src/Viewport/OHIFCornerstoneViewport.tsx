@@ -107,6 +107,12 @@ const OHIFCornerstoneViewport = React.memo(
             prevDimensions.width !== width || prevDimensions.height !== height;
 
           if (width > 0 && height > 0 && hasDimensionsChanged) {
+            console.log(
+              `[AspectRatio] ResizeObserver fired for viewport=${viewportId}`,
+              `prev=${prevDimensions.width}x${prevDimensions.height}`,
+              `new=${width}x${height}`,
+              `aspect=${(width / height).toFixed(3)}`
+            );
             viewportDimensions.set(viewportId, { width, height });
             // Perform resize operations
             cornerstoneViewportService.resize();

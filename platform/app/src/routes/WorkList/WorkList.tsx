@@ -642,36 +642,46 @@ function WorkList({
     setPendingNiftiImport(null);
   };
 
-  const renderDropOffWindow = isDragActive => {
-    const borderPatternClass = isDragActive
-      ? 'bg-[repeating-linear-gradient(45deg,#5a1515_0_8px,#210808_8px_16px)]'
-      : 'bg-transparent';
-
-    return (
-      <div className="relative flex min-h-0 flex-1 px-4 pb-8 pt-6">
-        <div
-          className={classnames(
-            'h-full w-full rounded-2xl p-[2px] transition-colors duration-150',
-            borderPatternClass
-          )}
-        >
-          <div className="flex h-full min-h-[320px] items-center justify-center rounded-[15px] border border-transparent bg-black/90 px-6 py-8 text-center">
-            <div className="flex flex-col items-center justify-center gap-4">
-              <Icons.Magnifier className="text-primary-light" />
-              <div className="space-y-2">
-                <p className="text-base font-semibold uppercase tracking-[0.2em] text-red-200/80">
-                  drop studies here
-                </p>
-                <p className="text-sm text-neutral-300">
-                  Drag and drop DICOM files or folders anywhere on the study list.
-                </p>
-              </div>
-            </div>
-          </div>
+  const renderDragOverlay = () => (
+    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm">
+      <div className="flex flex-col items-center gap-6 rounded-2xl border-2 border-dashed border-blue-400/50 bg-neutral-900/90 px-16 py-12 text-center shadow-2xl">
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-blue-500/10 ring-1 ring-blue-400/30">
+          <Icons.Upload className="h-10 w-10 text-blue-300" />
+        </div>
+        <div className="space-y-2">
+          <p className="text-xl font-semibold uppercase tracking-widest text-white">
+            Drop files to load
+          </p>
+          <p className="text-sm text-neutral-400">Release to load DICOM files or folders</p>
         </div>
       </div>
-    );
-  };
+    </div>
+  );
+
+  const renderEmptyState = () => (
+    <div className="flex min-h-[60vh] flex-1 items-center justify-center">
+      <div className="flex flex-col items-center gap-4 text-center">
+        <svg
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.25"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-neutral"
+        >
+          <path d="M12 15V3M12 3L8 7M12 3L16 7" />
+          <path d="M2 17v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2" />
+        </svg>
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-neutral-light">Drag and drop DICOM files or folders here</p>
+          <p className="text-xs text-neutral">or use the Upload button above</p>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="flex h-screen flex-col bg-black">
@@ -699,65 +709,65 @@ function WorkList({
         {({ getRootProps, isDragActive }) => (
           <div
             {...getRootProps()}
-            className={classnames('flex h-full min-h-0 flex-col overflow-y-auto transition duration-150')}
+            className="flex h-full min-h-0 flex-col overflow-y-auto transition duration-150"
           >
+            {isDragActive && renderDragOverlay()}
             <ScrollArea>
               <div className="flex min-h-full flex-1 flex-col">
                 <div className="flex flex-col">
-                <StudyListFilter
-                  numOfStudies={pageNumber * resultsPerPage > 100 ? 101 : numOfStudies}
-                  filtersMeta={filtersMeta}
-                  filterValues={{ ...filterValues, ...defaultSortValues }}
-                  onChange={setFilterValues}
-                  clearFilters={() => setFilterValues(defaultFilterValues)}
-                  isFiltering={isFiltering(filterValues, defaultFilterValues)}
-                  onUploadClick={() => {
-                    if (uploadProps) {
-                      show(uploadProps);
-                      return;
-                    }
+                  <StudyListFilter
+                    numOfStudies={pageNumber * resultsPerPage > 100 ? 101 : numOfStudies}
+                    filtersMeta={filtersMeta}
+                    filterValues={{ ...filterValues, ...defaultSortValues }}
+                    onChange={setFilterValues}
+                    clearFilters={() => setFilterValues(defaultFilterValues)}
+                    isFiltering={isFiltering(filterValues, defaultFilterValues)}
+                    onUploadClick={() => {
+                      if (uploadProps) {
+                        show(uploadProps);
+                        return;
+                      }
 
-                    navigate('/local');
-                  }}
-                  getDataSourceConfigurationComponent={
-                    dataSourceConfigurationComponent
-                      ? () => dataSourceConfigurationComponent()
-                      : undefined
-                  }
-                />
+                      navigate('/local');
+                    }}
+                    getDataSourceConfigurationComponent={
+                      dataSourceConfigurationComponent
+                        ? () => dataSourceConfigurationComponent()
+                        : undefined
+                    }
+                  />
                 </div>
-                  {hasStudies ? (
+                {hasStudies ? (
                   <div className="flex min-h-0 flex-1 flex-col">
-                      <StudyListTable
-                        tableDataSource={tableDataSource.slice(offset, offsetAndTake)}
-                        numOfStudies={numOfStudies}
-                        querying={querying}
-                        filtersMeta={filtersMeta}
+                    <StudyListTable
+                      tableDataSource={tableDataSource.slice(offset, offsetAndTake)}
+                      numOfStudies={numOfStudies}
+                      querying={querying}
+                      filtersMeta={filtersMeta}
+                    />
+                    <div className="grow">
+                      <StudyListPagination
+                        onChangePage={onPageNumberChange}
+                        onChangePerPage={onResultsPerPageChange}
+                        currentPage={pageNumber}
+                        perPage={resultsPerPage}
                       />
-                      <div className="grow">
-                        <StudyListPagination
-                          onChangePage={onPageNumberChange}
-                          onChangePerPage={onResultsPerPageChange}
-                          currentPage={pageNumber}
-                          perPage={resultsPerPage}
-                        />
-                      </div>
-                      {renderDropOffWindow(isDragActive)}
                     </div>
-                  ) : (
-                    <div className="flex min-h-0 flex-1 flex-col">
-                      {appConfig.showLoadingIndicator && (isLoadingData || dropInitiated) ? (
-                        <LoadingIndicatorProgress className={'h-full w-full bg-black'} />
-                      ) : (
-                        renderDropOffWindow(isDragActive)
-                      )}
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
-            </div>
-          )}
-        </Dropzone>
+                  </div>
+                ) : (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    {appConfig.showLoadingIndicator && (isLoadingData || dropInitiated) ? (
+                      <LoadingIndicatorProgress className={'h-full w-full bg-black'} />
+                    ) : (
+                      renderEmptyState()
+                    )}
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        )}
+      </Dropzone>
     </div>
   );
 }

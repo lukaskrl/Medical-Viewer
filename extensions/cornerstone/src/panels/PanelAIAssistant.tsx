@@ -8,7 +8,7 @@ const SYSTEM_PROMPT = `You are a radiology AI assistant embedded in a DICOM view
 When analyzing images, respond using this structure:
 
 ## Findings
-Systematic description of technique, anatomy, and observed abnormalities — include location, size, attenuation/signal, morphology, and any incidental findings.
+Systematic description of technique, anatomy, and observed abnormalities if any are present.  — include location, size, attenuation/signal, morphology, and any incidental findings.
 
 ## Assessment
 Differential diagnosis ranked by likelihood with concise reasoning for each.

@@ -163,6 +163,14 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       numStackViewportsInViewportGrid <= MIN_STACK_VIEWPORTS_TO_ENQUEUE_RESIZE &&
       numVolumeViewportsInViewportGrid <= MIN_VOLUME_VIEWPORTS_TO_ENQUEUE_RESIZE;
 
+    console.log(
+      `[AspectRatio] resize() called`,
+      `stackVPs=${numStackViewportsInViewportGrid}`,
+      `volumeVPs=${numVolumeViewportsInViewportGrid}`,
+      `isEasyResize=${isEasyResize}`,
+      new Error('stack').stack?.split('\n').slice(1, 4).join(' | ')
+    );
+
     // if there is a grid resize happening, it means the viewport grid
     // has been manipulated (e.g., panels closed, added, etc.) and we need
     // to resize all viewports, so we will add a timeout here to make sure
@@ -205,6 +213,14 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
    * @param viewportId - The viewportId to disable
    */
   public disableElement(viewportId: string): void {
+    const el = this.viewportsById.get(viewportId)?.getElement();
+    const canvas = el?.querySelector?.('canvas.cornerstone-canvas') as HTMLCanvasElement;
+    console.log(
+      `[AspectRatio] disableElement — viewport=${viewportId}`,
+      `canvas.width=${canvas?.width}x${canvas?.height}`,
+      `element=${el?.clientWidth}x${el?.clientHeight}`,
+      new Error('stack').stack?.split('\n').slice(1, 4).join(' | ')
+    );
     this.renderingEngine?.disableElement(viewportId);
 
     // clean up
@@ -326,13 +342,24 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     }
 
     const viewportInfo = this.viewportsById.get(viewportId);
-
-    return {
+    const presentation = {
       viewportType: viewportInfo.getViewportType(),
       viewReference: csViewport instanceof VolumeViewport3D ? null : csViewport.getViewReference(),
       viewPresentation: csViewport.getViewPresentation({ pan: true, zoom: true }),
       viewportId,
     };
+
+    const el = viewportInfo.getElement();
+    console.log(
+      `[AspectRatio] _getPositionPresentation viewport=${viewportId}`,
+      `element=${el?.clientWidth}x${el?.clientHeight}`,
+      `canvas=${(csViewport as any)?.canvas?.width}x${(csViewport as any)?.canvas?.height}`,
+      `parallelScale=${presentation.viewPresentation?.parallelScale?.toFixed(4)}`,
+      `pan=${JSON.stringify(presentation.viewPresentation?.pan)}`,
+      new Error('stack').stack?.split('\n').slice(1, 4).join(' | ')
+    );
+
+    return presentation;
   }
 
   private _getLutPresentation(viewportId: string): LutPresentation {
@@ -469,7 +496,32 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     // element which is not what we want. But enabledElement as part of the
     // renderingEngine is designed to be used like this. This will trigger
     // ENABLED_ELEMENT again and again, which will run onEnableElement callbacks
+    {
+      const existingVP = renderingEngine.getViewport(viewportId);
+      const el = viewportInfo.getElement();
+      const canvas = el?.querySelector?.('canvas.cornerstone-canvas') as HTMLCanvasElement;
+      console.log(
+        `[AspectRatio] enableElement BEFORE — viewport=${viewportId}`,
+        `engineViewports=[${renderingEngine.getViewports().map(v => v.id).join(',')}]`,
+        `canvas.width=${canvas?.width}x${canvas?.height}`,
+        `canvas.clientWidth=${canvas?.clientWidth}x${canvas?.clientHeight}`,
+        `element=${el?.clientWidth}x${el?.clientHeight}`,
+        `alreadyInEngine=${!!existingVP}`,
+        new Error('stack').stack?.split('\n').slice(1, 5).join(' | ')
+      );
+    }
     renderingEngine.enableElement(viewportInput);
+    {
+      const el = viewportInfo.getElement();
+      const canvas = el?.querySelector?.('canvas.cornerstone-canvas') as HTMLCanvasElement;
+      console.log(
+        `[AspectRatio] enableElement AFTER — viewport=${viewportId}`,
+        `engineViewports=[${renderingEngine.getViewports().map(v => v.id).join(',')}]`,
+        `canvas.width=${canvas?.width}x${canvas?.height}`,
+        `canvas.clientWidth=${canvas?.clientWidth}x${canvas?.clientHeight}`,
+        new Error('stack').stack?.split('\n').slice(1, 5).join(' | ')
+      );
+    }
 
     viewportInfo.setViewportOptions(viewportOptions);
     viewportInfo.setDisplaySetOptions(displaySetOptions);
@@ -1378,15 +1430,85 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     try {
       const viewports = this.getRenderingEngine().getViewports();
 
+      console.log(
+        `[AspectRatio] performResize() called, viewportCount=${viewports.length}`,
+        `viewportIds=[${viewports.map(v => v.id).join(',')}]`,
+        new Error('stack').stack?.split('\n').slice(1, 4).join(' | ')
+      );
+
       // Store the current position presentations for each viewport.
       viewports.forEach(({ id: viewportId }) => {
         const presentation = this._getPositionPresentation(viewportId);
+
+        const csViewport = this.getCornerstoneViewport(viewportId);
+        const el = this.viewportsById.get(viewportId)?.getElement();
+        const cvs = (csViewport as any)?.canvas as HTMLCanvasElement | undefined;
+        const rect = cvs?.getBoundingClientRect();
+        console.log(
+          `[AspectRatio] BEFORE resize — viewport=${viewportId}`,
+          `element=${el?.clientWidth}x${el?.clientHeight}`,
+          `canvas.width(attr)=${cvs?.width}x${cvs?.height}`,
+          `canvas.clientWidth=${cvs?.clientWidth}x${cvs?.clientHeight}`,
+          `canvas.getBCR=${rect?.width?.toFixed(1)}x${rect?.height?.toFixed(1)}`,
+          `canvas.style.aspectRatio="${cvs?.style?.aspectRatio}"`,
+          `parallelScale=${presentation?.viewPresentation?.parallelScale?.toFixed(4)}`,
+          `pan=${JSON.stringify(presentation?.viewPresentation?.pan)}`
+        );
 
         // During a resize, the slice index should remain unchanged. This is a temporary fix for
         // a larger issue regarding the definition of slice index with slab thickness.
         // We need to revisit this to make it more robust and understandable.
         delete presentation.viewReference?.sliceIndex;
         this.beforeResizePositionPresentations.set(viewportId, presentation);
+      });
+
+      // Cornerstone's _resizeVTKViewports reads canvas.clientWidth to resize the canvas bitmap.
+      // If a canvas has a stale CSS aspect-ratio (e.g. set during one-up mode via
+      // updateCanvasSizeAndAspectRatio), clientWidth may reflect the old one-up size instead of
+      // the current element width, causing the canvas to never resize back correctly.
+      // Clear it first so clientWidth accurately reflects the element's current layout.
+      viewports.forEach(({ id: viewportId }) => {
+        const csViewport = this.getCornerstoneViewport(viewportId);
+        const cvs = (csViewport as any)?.canvas as HTMLCanvasElement | undefined;
+        if (cvs && cvs.style.aspectRatio) {
+          const el = this.viewportsById.get(viewportId)?.getElement();
+          console.log(
+            `[AspectRatio] Clearing stale aspectRatio="${cvs.style.aspectRatio}" for viewport=${viewportId}`,
+            `element=${el?.clientWidth}x${el?.clientHeight}`,
+            `canvas.clientWidth=${cvs.clientWidth}x${cvs.clientHeight}`
+          );
+          cvs.style.aspectRatio = '';
+        }
+      });
+
+      // Workaround for ContextPoolRenderingEngine._animationFrameSet early-return:
+      // When setVolumesForViewport triggers render() (e.g. after segmentation loads) before
+      // our resize fires, _animationFrameSet=true causes _resizeVTKViewports to skip updating
+      // sWidth/sHeight on the viewport objects. We pre-patch them directly so the subsequent
+      // RAF always renders at the correct element dimensions.
+      const dpr = window.devicePixelRatio || 1;
+      viewports.forEach(vp => {
+        const vpAny = vp as any;
+        const el = vpAny.element as HTMLElement | undefined;
+        if (!el) {
+          return;
+        }
+        const w = Math.round(el.clientWidth * dpr);
+        const h = Math.round(el.clientHeight * dpr);
+        if (w < 1 || h < 1) {
+          return;
+        }
+        if (vpAny.sWidth !== w || vpAny.sHeight !== h) {
+          console.log(
+            `[AspectRatio] Pre-patching sWidth/sHeight for viewport=${vp.id}`,
+            `from ${vpAny.sWidth}x${vpAny.sHeight} → ${w}x${h}`
+          );
+          vpAny.sWidth = w;
+          vpAny.sHeight = h;
+          if (typeof vpAny.resetCameraForResize === 'function') {
+            vpAny.resetCameraForResize();
+          }
+        }
       });
 
       // Resize the rendering engine and render.
@@ -1397,6 +1519,15 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       // Reset the camera for all viewports using position presentation to maintain relative size/position
       // which means only those viewports that have a zoom level of 1.
       this.beforeResizePositionPresentations.forEach((positionPresentation, viewportId) => {
+        const csViewport = this.getCornerstoneViewport(viewportId);
+        const el = this.viewportsById.get(viewportId)?.getElement();
+        console.log(
+          `[AspectRatio] AFTER resize1 — viewport=${viewportId}`,
+          `element=${el?.clientWidth}x${el?.clientHeight}`,
+          `canvas=${(csViewport as any)?.canvas?.width}x${(csViewport as any)?.canvas?.height}`,
+          `restoring parallelScale=${positionPresentation?.viewPresentation?.parallelScale?.toFixed(4)}`,
+          `pan=${JSON.stringify(positionPresentation?.viewPresentation?.pan)}`
+        );
         this.setPresentations(viewportId, {
           positionPresentation,
         });
@@ -1405,6 +1536,18 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       // Resize and render the rendering engine again.
       renderingEngine.resize(isImmediate);
       renderingEngine.render();
+
+      viewports.forEach(({ id: viewportId }) => {
+        const final = this._getPositionPresentation(viewportId);
+        const csViewport = this.getCornerstoneViewport(viewportId);
+        const el = this.viewportsById.get(viewportId)?.getElement();
+        console.log(
+          `[AspectRatio] AFTER resize2 — viewport=${viewportId}`,
+          `element=${el?.clientWidth}x${el?.clientHeight}`,
+          `canvas=${(csViewport as any)?.canvas?.width}x${(csViewport as any)?.canvas?.height}`,
+          `final parallelScale=${final?.viewPresentation?.parallelScale?.toFixed(4)}`
+        );
+      });
     } catch (e) {
       // This can happen if the resize is too close to navigation or shutdown
       console.warn('Caught resize exception', e);
@@ -1458,6 +1601,15 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
 
     const viewPresentation = positionPresentation?.viewPresentation;
     if (viewPresentation) {
+      const el = (viewport as any).element as HTMLElement;
+      console.log(
+        `[AspectRatio] _setPositionPresentation viewport=${viewport.id}`,
+        `element=${el?.clientWidth}x${el?.clientHeight}`,
+        `canvas=${(viewport as any)?.canvas?.width}x${(viewport as any)?.canvas?.height}`,
+        `applying parallelScale=${viewPresentation?.parallelScale?.toFixed(4)}`,
+        `pan=${JSON.stringify(viewPresentation?.pan)}`,
+        new Error('stack').stack?.split('\n').slice(1, 4).join(' | ')
+      );
       viewport.setViewPresentation(viewPresentation);
     }
   }
