@@ -1148,7 +1148,16 @@ class SegmentationService extends PubSubService {
       },
       segmentIndex
     );
-    this._setSegmentVisibility(viewportId, segmentationId, segmentIndex, !isVisible, type);
+    const newVisibility = !isVisible;
+
+    // Apply to all viewports that contain this segmentation (not just the active one)
+    const allViewportIds = this.getViewportIdsWithSegmentation(segmentationId);
+    allViewportIds.forEach(vpId => {
+      const representations = this.getSegmentationRepresentations(vpId, { segmentationId });
+      representations.forEach(rep => {
+        this._setSegmentVisibility(vpId, segmentationId, segmentIndex, newVisibility, rep.type);
+      });
+    });
   }
 
   /**
@@ -2143,12 +2152,16 @@ class SegmentationService extends PubSubService {
     });
 
     const currentVisibility = segmentsHidden.size === 0;
-    this._setSegmentationRepresentationVisibility(
-      viewportId,
-      segmentationId,
-      type,
-      !currentVisibility
-    );
+    const newVisibility = !currentVisibility;
+
+    // Apply to all viewports that contain this segmentation (not just the active one)
+    const allViewportIds = this.getViewportIdsWithSegmentation(segmentationId);
+    allViewportIds.forEach(vpId => {
+      const representations = this.getSegmentationRepresentations(vpId, { segmentationId });
+      representations.forEach(rep => {
+        this._setSegmentationRepresentationVisibility(vpId, segmentationId, rep.type, newVisibility);
+      });
+    });
   };
 
   private _setActiveSegment(segmentationId: string, segmentIndex: number) {
