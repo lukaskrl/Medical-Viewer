@@ -27,8 +27,11 @@ package-lock.json
 yarn-error.log
 .DS_Store
 .env
+.env.local
+*.env.local
 *.code-workspace
 .directory
+/platform/app/.env
 
 # Common Example Data Directories
 sampledata/
@@ -74,3 +77,14 @@ libs/
 libs/
 link-cs3d.js
 unlink-cs3d.js
+
+# AI model artefacts (regenerated from ai/main.py weights via ai/export_onnx.py)
+ai/output/
+ai/models_onnx/
+platform/app/public/ai-models/
+ai/nnUNetTrainerV2_ep4000_nomirror__nnUNetPlansv2.1/
+
+# onnxruntime-web webpack-emitted asset bundles (built into extension dist)
+extensions/cornerstone/*.wasm
+extensions/cornerstone/*.mjs
+extensions/cornerstone/*.LICENSE.txt

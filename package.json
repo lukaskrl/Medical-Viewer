@@ -83,7 +83,8 @@
     "cs3d:unlink": "node libs/@cornerstonejs/scripts/unlink-ohif-cornerstone-node-modules.mjs ."
   },
   "dependencies": {
-    "execa": "8.0.1"
+    "execa": "8.0.1",
+    "onnxruntime-web": "1.22.0"
   },
   "optionalDependencies": {
     "@percy/cypress": "3.1.6",
