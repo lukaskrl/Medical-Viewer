@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildNiftiBuffer,
   gzipNifti,
@@ -87,7 +87,39 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
   const [runningModelId, setRunningModelId] = useState<string | null>(null);
   const [progressText, setProgressText] = useState<string>('');
   const [progressPct, setProgressPct] = useState<number>(0);
+  const [displayedPct, setDisplayedPct] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+
+  // Bar fills linearly from 0 to 100% over 60s, independent of real progress.
+  const TOTAL_DURATION_MS = 60_000;
+  const RATE = 1 / TOTAL_DURATION_MS; // pct per ms
+
+  const displayedRef = useRef(0);
+
+  useEffect(() => {
+    if (runningModelId === null) {
+      displayedRef.current = 0;
+      setDisplayedPct(0);
+      return;
+    }
+    displayedRef.current = 0;
+    setDisplayedPct(0);
+    let lastTick = performance.now();
+    let raf = 0;
+    const tick = () => {
+      const now = performance.now();
+      const dt = now - lastTick;
+      lastTick = now;
+      const next = Math.min(1, displayedRef.current + RATE * dt);
+      if (next !== displayedRef.current) {
+        displayedRef.current = next;
+        setDisplayedPct(next);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [runningModelId]);
 
   // Fetch the server catalog once (best-effort).
   useEffect(() => {
@@ -368,8 +400,98 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
+      <style>{`
+        @keyframes ai-shimmer {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(200%); }
+        }
+        @keyframes ai-stripes {
+          0%   { background-position: 0 0; }
+          100% { background-position: 28px 0; }
+        }
+        @keyframes ai-pulse-glow {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.0); }
+          50%      { box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18); }
+        }
+        @keyframes ai-dot-bounce {
+          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+          40%           { transform: scale(1);   opacity: 1; }
+        }
+        .ai-progress-track {
+          position: relative;
+          height: 8px;
+          width: 100%;
+          overflow: hidden;
+          border-radius: 9999px;
+          background: rgba(255, 255, 255, 0.06);
+        }
+        .ai-progress-fill {
+          position: relative;
+          height: 100%;
+          border-radius: 9999px;
+          background-image: linear-gradient(90deg, #6366f1 0%, #8b5cf6 50%, #06b6d4 100%);
+          background-size: 200% 100%;
+          transition: width 200ms ease-out;
+          overflow: hidden;
+        }
+        .ai-progress-fill::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background-image: linear-gradient(
+            45deg,
+            rgba(255, 255, 255, 0.18) 25%,
+            transparent       25%,
+            transparent       50%,
+            rgba(255, 255, 255, 0.18) 50%,
+            rgba(255, 255, 255, 0.18) 75%,
+            transparent       75%,
+            transparent
+          );
+          background-size: 14px 14px;
+          animation: ai-stripes 0.8s linear infinite;
+          opacity: 0.55;
+        }
+        .ai-progress-shimmer {
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(
+            90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.35) 50%,
+            transparent 100%
+          );
+          animation: ai-shimmer 1.6s linear infinite;
+          pointer-events: none;
+        }
+        .ai-running-card {
+          animation: ai-pulse-glow 2.2s ease-in-out infinite;
+          border-color: rgba(99, 102, 241, 0.6) !important;
+        }
+        .ai-dot {
+          width: 4px;
+          height: 4px;
+          border-radius: 9999px;
+          background: currentColor;
+          display: inline-block;
+          animation: ai-dot-bounce 1.2s infinite ease-in-out both;
+        }
+        .ai-dot:nth-child(2) { animation-delay: 0.15s; }
+        .ai-dot:nth-child(3) { animation-delay: 0.30s; }
+      `}</style>
       <div className="border-b border-border p-3 space-y-2">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">Inference runtime</p>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-indigo-500 to-violet-500 text-[9px] font-bold text-white shadow-sm">
+            AI
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold leading-tight text-foreground">AI Models</p>
+            <p className="text-[10px] leading-tight text-muted-foreground">
+              Segmentation & inference
+            </p>
+          </div>
+        </div>
+        <p className="text-xs uppercase tracking-wide text-muted-foreground pt-1">Inference runtime</p>
         <div className="flex overflow-hidden rounded-md border border-border">
           <button
             type="button"
@@ -430,7 +552,9 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
           return (
             <div
               key={model.id}
-              className="rounded-lg border border-border bg-muted/40 p-3 space-y-2"
+              className={`rounded-lg border border-border bg-muted/40 p-3 space-y-2 ${
+                isRunning ? 'ai-running-card' : ''
+              }`}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -451,14 +575,28 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
               </div>
               <p className="text-xs leading-relaxed text-muted-foreground">{model.description}</p>
               {isRunning && (
-                <div className="space-y-1">
-                  <div className="h-1 w-full overflow-hidden rounded bg-muted">
+                <div className="space-y-1.5 pt-1">
+                  <div className="ai-progress-track">
                     <div
-                      className="h-full bg-primary transition-all duration-200"
-                      style={{ width: `${Math.round(progressPct * 100)}%` }}
-                    />
+                      className="ai-progress-fill"
+                      style={{ width: `${Math.max(4, Math.round(displayedPct * 100))}%` }}
+                    >
+                      <span className="ai-progress-shimmer" />
+                    </div>
                   </div>
-                  <p className="text-[10px] text-muted-foreground">{progressText}</p>
+                  <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="inline-flex items-center gap-0.5 text-indigo-400">
+                        <span className="ai-dot" />
+                        <span className="ai-dot" />
+                        <span className="ai-dot" />
+                      </span>
+                      <span className="truncate">{progressText || 'Working…'}</span>
+                    </span>
+                    <span className="shrink-0 font-mono tabular-nums text-foreground/80">
+                      {Math.round(displayedPct * 100)}%
+                    </span>
+                  </div>
                 </div>
               )}
             </div>

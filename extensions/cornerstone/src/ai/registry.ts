@@ -1,5 +1,6 @@
 import type { ImageVolume } from '../utils/extractDisplaySetVolume';
-import { runVertebraeInference, VERTEBRAE_LABELS } from './models/vertebrae';
+import { VERTEBRAE_LABELS } from './models/vertebrae';
+import { runInWorker } from './runInWorker';
 
 export interface LocalModelResult {
   data: Uint8Array;
@@ -32,6 +33,11 @@ export const LOCAL_MODELS: Record<string, LocalModel> = {
     modality: 'CT',
     onnxFile: 'vertebrae.onnx',
     labelNames: VERTEBRAE_LABELS,
-    run: runVertebraeInference,
+    run: (volume, opts) =>
+      runInWorker(volume, {
+        modelId: 'vertebrae',
+        onnxUrl: opts.onnxUrl,
+        onProgress: opts.onProgress,
+      }),
   },
 };

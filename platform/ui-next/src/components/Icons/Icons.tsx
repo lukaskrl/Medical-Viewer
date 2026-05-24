@@ -57,6 +57,7 @@ import StatusUntracked from './Sources/StatusUntracked';
 import StatusWarning from './Sources/StatusWarning';
 import Tab4D from './Sources/Tab4D';
 import TabAIAssistant from './Sources/TabAIAssistant';
+import TabAIModels from './Sources/TabAIModels';
 import TabLinear from './Sources/TabLinear';
 import TabPatientInfo from './Sources/TabPatientInfo';
 import TabRoiThreshold from './Sources/TabRoiThreshold';
@@ -682,6 +683,7 @@ export const Icons = {
   'tab-contours': (props: IconProps) => TabContours(props),
   TabContours: (props: IconProps) => TabContours(props),
   'tab-ai-assistant': (props: IconProps) => TabAIAssistant(props),
+  'tab-ai-models': (props: IconProps) => TabAIModels(props),
   'tab-segmentation': (props: IconProps) => TabSegmentation(props),
   'tab-studies': (props: IconProps) => TabStudies(props),
   'tab-linear': (props: IconProps) => TabLinear(props),

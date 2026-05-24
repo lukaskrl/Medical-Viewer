@@ -92,7 +92,7 @@ const getPanelModule = ({ commandsManager, servicesManager, extensionManager }: 
     },
     {
       name: 'panelAIModels',
-      iconName: 'tab-ai-assistant',
+      iconName: 'tab-ai-models',
       iconLabel: 'Models',
       label: 'AI Models',
       component: () => (

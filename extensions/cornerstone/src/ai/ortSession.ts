@@ -18,7 +18,19 @@ async function loadOrt(): Promise<OrtModule> {
   if (!ortPromise) {
     // Dynamic import so onnxruntime-web is split into its own chunk and only
     // loaded when the user actually runs a local inference.
-    ortPromise = import('onnxruntime-web').then(mod => mod as unknown as OrtModule);
+    ortPromise = import('onnxruntime-web').then(mod => {
+      const ort = mod as unknown as OrtModule;
+      // Point ORT at the /ort/ folder where rsbuild copies the .wasm files.
+      // Required in worker contexts because import.meta-based resolution lands
+      // next to the worker chunk, not next to the .wasm files.
+      if (ort?.env?.wasm) {
+        ort.env.wasm.wasmPaths = '/ort/';
+        // Single-threaded WASM avoids the cross-origin-isolation requirement;
+        // we get parallelism by running the whole inference in a Worker.
+        ort.env.wasm.numThreads = 1;
+      }
+      return ort;
+    });
   }
   return ortPromise;
 }
