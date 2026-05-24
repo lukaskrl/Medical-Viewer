@@ -11,6 +11,7 @@ import {
   runSlidingWindow,
   type SlidingWindowProgress,
 } from '../slidingWindow';
+import type { AIProgressEvent } from '../progress';
 
 // Refuse to run if the estimated peak memory exceeds this. Browsers typically
 // OOM tabs around 2 GB on 32-bit V8 and 4 GB on 64-bit; 1.5 GB is a safe cap
@@ -52,7 +53,7 @@ export const VERTEBRAE_LABELS: Record<number, string> = {
 
 export interface VertebraeOptions {
   onnxUrl: string;
-  onProgress?: (stage: string, progress: number, total: number) => void;
+  onProgress?: (event: AIProgressEvent) => void;
 }
 
 export interface VertebraeResult {
@@ -69,11 +70,22 @@ export async function runVertebraeInference(
   opts: VertebraeOptions
 ): Promise<VertebraeResult> {
   const { onnxUrl, onProgress } = opts;
+  const PREPROCESS_STEPS = 3;
 
-  onProgress?.('Reorienting volume to RAS', 0, 4);
+  onProgress?.({
+    phase: 'preprocess',
+    step: 0,
+    total: PREPROCESS_STEPS,
+    label: 'Reorienting volume to RAS',
+  });
   const canonical: CanonicalVolume = reorientToRAS(volume);
 
-  onProgress?.('Resampling to 1.5mm isotropic', 1, 4);
+  onProgress?.({
+    phase: 'preprocess',
+    step: 1,
+    total: PREPROCESS_STEPS,
+    label: 'Resampling to 1.5mm isotropic',
+  });
   const resampled = resampleTrilinear(
     canonical.data,
     canonical.shape,
@@ -81,7 +93,12 @@ export async function runVertebraeInference(
     TARGET_SPACING
   );
 
-  onProgress?.('Normalizing intensities', 2, 4);
+  onProgress?.({
+    phase: 'preprocess',
+    step: 2,
+    total: PREPROCESS_STEPS,
+    label: 'Normalizing intensities',
+  });
   clipAndZScore(resampled.data, NORMALIZE.lo, NORMALIZE.hi, NORMALIZE.mean, NORMALIZE.std);
 
   const estBytes = estimateSlidingWindowMemory(resampled.shape, PATCH_SIZE, NUM_CLASSES);
@@ -99,13 +116,25 @@ export async function runVertebraeInference(
     numClasses: NUM_CLASSES,
     stepSize: 0.5,
     onProgress: (p: SlidingWindowProgress) =>
-      onProgress?.(`Inference patch ${p.patch}/${p.total}`, p.patch, p.total),
+      onProgress?.({ phase: 'inference', patch: p.patch, total: p.total }),
   });
 
-  onProgress?.('Resampling labelmap to source', 3, 4);
+  // Reserve the last postprocess step for the caller's "load into viewer"
+  // pass, so we report this as step 0 of 2.
+  onProgress?.({
+    phase: 'postprocess',
+    step: 0,
+    total: 2,
+    label: 'Resampling labelmap to source',
+  });
   const back = reorientLabelmapToSource(labelmap, resampled.shape, canonical);
 
-  onProgress?.('Done', 4, 4);
+  onProgress?.({
+    phase: 'postprocess',
+    step: 1,
+    total: 2,
+    label: 'Finalizing',
+  });
   return {
     data: back.data,
     width: back.width,

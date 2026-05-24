@@ -1,4 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   buildNiftiBuffer,
   gzipNifti,
@@ -7,6 +14,16 @@ import { extractDisplaySetVolume, type ImageVolume } from '../utils/extractDispl
 import { LOCAL_MODELS, type LocalModel } from '../ai/registry';
 import { isWebGpuAvailable } from '../ai/ortSession';
 import { loadAiSegmentation } from '../ai/loadAiSegmentation';
+import * as inferenceProgress from '../ai/inferenceProgressStore';
+import { BAR_LAYOUT } from '../ai/inferenceProgressStore';
+
+const { PCT_EXTRACT_END, PCT_PREPROCESS_END, PCT_INFERENCE_END } = BAR_LAYOUT;
+
+// Exponential smoothing time constant (ms) for displayed → target.
+const SMOOTH_TAU_MS = 220;
+
+// Predicted in-patch motion is capped so the bar never overshoots a patch.
+const PATCH_PREDICT_CAP = 0.95;
 
 type Runtime = 'local' | 'server';
 
@@ -84,17 +101,24 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
   });
   const [serverModels, setServerModels] = useState<ServerModel[]>([]);
   const [serverReachable, setServerReachable] = useState<boolean | null>(null);
-  const [runningModelId, setRunningModelId] = useState<string | null>(null);
-  const [progressText, setProgressText] = useState<string>('');
-  const [progressPct, setProgressPct] = useState<number>(0);
-  const [displayedPct, setDisplayedPct] = useState<number>(0);
-  const [error, setError] = useState<string | null>(null);
 
-  // Bar fills linearly from 0 to 100% over 60s, independent of real progress.
-  const TOTAL_DURATION_MS = 60_000;
-  const RATE = 1 / TOTAL_DURATION_MS; // pct per ms
+  // Inference progress lives in a module-level store so it survives this panel
+  // unmounting (e.g. user switches to another panel). The displayed bar value
+  // is local — animation only matters while we're visible — and snaps to the
+  // store's current target on (re)mount so a returning user sees the bar at
+  // its true position immediately.
+  const progressSnapshot = useSyncExternalStore(
+    inferenceProgress.subscribe,
+    inferenceProgress.getSnapshot,
+    inferenceProgress.getSnapshot
+  );
+  const runningModelId = progressSnapshot.runningModelId;
+  const progressText = progressSnapshot.progressText;
+  const error = progressSnapshot.error;
 
-  const displayedRef = useRef(0);
+  const initialDisplayed = runningModelId !== null ? progressSnapshot.targetPct : 0;
+  const [displayedPct, setDisplayedPct] = useState<number>(initialDisplayed);
+  const displayedRef = useRef(initialDisplayed);
 
   useEffect(() => {
     if (runningModelId === null) {
@@ -102,15 +126,36 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
       setDisplayedPct(0);
       return;
     }
-    displayedRef.current = 0;
-    setDisplayedPct(0);
+    // Snap to current target on (re)mount so the bar appears at its real
+    // position immediately instead of replaying the easing from zero.
+    const startTarget = inferenceProgress.getSnapshot().targetPct;
+    displayedRef.current = startTarget;
+    setDisplayedPct(startTarget);
+
     let lastTick = performance.now();
     let raf = 0;
     const tick = () => {
       const now = performance.now();
       const dt = now - lastTick;
       lastTick = now;
-      const next = Math.min(1, displayedRef.current + RATE * dt);
+
+      // Real target from the store, possibly nudged forward by patch-time
+      // prediction so the bar advances between discrete patch updates.
+      const snap = inferenceProgress.getSnapshot();
+      let target = snap.targetPct;
+      const inf = snap.inference;
+      if (inf && inf.ewmaPatchMs > 0 && inf.patchesDone < inf.totalPatches) {
+        const elapsed = now - inf.lastPatchAt;
+        const frac = Math.min(PATCH_PREDICT_CAP, elapsed / inf.ewmaPatchMs);
+        const perPatch = (inf.endBarPct - inf.baseBarPct) / inf.totalPatches;
+        const predicted = inf.baseBarPct + (inf.patchesDone + frac) * perPatch;
+        if (predicted > target) target = predicted;
+      }
+      target = Math.min(1, target);
+
+      const alpha = 1 - Math.exp(-dt / SMOOTH_TAU_MS);
+      let next = displayedRef.current + (target - displayedRef.current) * alpha;
+      if (target - next < 0.0005) next = target; // settle exactly when close
       if (next !== displayedRef.current) {
         displayedRef.current = next;
         setDisplayedPct(next);
@@ -207,25 +252,22 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
       }
       const local = model.local;
 
-      setProgressText('Extracting volume from active viewport');
-      setProgressPct(0);
+      inferenceProgress.setProgressText('Extracting volume from active viewport');
       const volume: ImageVolume = await extractDisplaySetVolume(displaySet, {
         onProgress: (loaded, total) => {
-          setProgressPct(total ? (loaded / total) * 0.1 : 0);
+          inferenceProgress.bumpTarget(total ? (loaded / total) * PCT_EXTRACT_END : 0);
         },
       });
+      inferenceProgress.bumpTarget(PCT_EXTRACT_END);
 
       const onnxUrl = `${aiModelsPath.replace(/\/$/, '')}/${local.onnxFile}`;
       const result = await local.run(volume, {
         onnxUrl,
-        onProgress: (stage, p, total) => {
-          setProgressText(stage);
-          setProgressPct(total ? 0.1 + 0.85 * (p / total) : 0.1);
-        },
+        onProgress: inferenceProgress.handleProgressEvent,
       });
 
-      setProgressText('Loading segmentation into viewer');
-      setProgressPct(0.97);
+      inferenceProgress.setProgressText('Loading segmentation into viewer');
+      inferenceProgress.bumpTarget(PCT_INFERENCE_END);
       await loadAiSegmentation({
         referenceVolume: volume,
         labelmap: result,
@@ -235,7 +277,7 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
         servicesManager,
         viewportId: activeViewportId,
       });
-      setProgressPct(1);
+      inferenceProgress.bumpTarget(1);
     },
     [aiModelsPath, servicesManager]
   );
@@ -246,16 +288,15 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
         throw new Error('aiServiceUrl is not configured');
       }
 
-      setProgressText('Extracting volume from active viewport');
-      setProgressPct(0);
+      inferenceProgress.setProgressText('Extracting volume from active viewport');
       const volume = await extractDisplaySetVolume(displaySet, {
         onProgress: (loaded, total) => {
-          setProgressPct(total ? (loaded / total) * 0.2 : 0);
+          inferenceProgress.bumpTarget(total ? (loaded / total) * PCT_EXTRACT_END : 0);
         },
       });
 
-      setProgressText('Packing NIfTI for upload');
-      setProgressPct(0.25);
+      inferenceProgress.setProgressText('Packing NIfTI for upload');
+      inferenceProgress.bumpTarget(0.07);
       const buffer = buildNiftiBuffer({
         data: volume.data,
         width: volume.width,
@@ -272,8 +313,8 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
       const blob = new Blob([gzipped], { type: 'application/gzip' });
       const file = new File([blob], 'volume.nii.gz', { type: 'application/gzip' });
 
-      setProgressText(`Uploading to ${aiServiceUrl}`);
-      setProgressPct(0.3);
+      inferenceProgress.setProgressText(`Uploading to ${aiServiceUrl}`);
+      inferenceProgress.bumpTarget(PCT_PREPROCESS_END);
       const form = new FormData();
       form.append('file', file);
       const res = await fetch(`${aiServiceUrl}/predict/${model.id}`, {
@@ -291,8 +332,8 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
         throw new Error(`Server inference failed: ${detail}`);
       }
 
-      setProgressText('Receiving segmentation');
-      setProgressPct(0.85);
+      inferenceProgress.setProgressText('Receiving segmentation');
+      inferenceProgress.bumpTarget(0.92);
       const segBlob = await res.blob();
       const labelHeader = res.headers.get('X-Label-Names') || '';
       const labelNames: Record<number, string> = {};
@@ -309,8 +350,8 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
         Object.assign(labelNames, model.local.labelNames);
       }
 
-      setProgressText('Loading segmentation into viewer');
-      setProgressPct(0.95);
+      inferenceProgress.setProgressText('Loading segmentation into viewer');
+      inferenceProgress.bumpTarget(PCT_INFERENCE_END);
       // Hand the .nii.gz directly to the existing NIfTI loader.
       const niftiFile = new File([segBlob], `${model.id}_seg.nii.gz`, {
         type: 'application/gzip',
@@ -340,35 +381,34 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
           viewportId: activeViewportId,
         });
       }
-      setProgressPct(1);
+      inferenceProgress.bumpTarget(1);
     },
     [aiServiceUrl, servicesManager, commandsManager]
   );
 
   const handleRun = useCallback(
     async (model: DisplayedModel) => {
-      setError(null);
+      inferenceProgress.clearError();
       const ctx = getActiveContext();
       if (!ctx) {
-        setError('No active viewport with a display set. Open a study first.');
+        inferenceProgress.endRun('No active viewport with a display set. Open a study first.');
         return;
       }
       const useLocal = runtime === 'local';
       if (useLocal && !model.local) {
-        setError(`Model "${model.name}" is not available locally.`);
+        inferenceProgress.endRun(`Model "${model.name}" is not available locally.`);
         return;
       }
       if (!useLocal && !model.server) {
-        setError(`Model "${model.name}" is not available on the server.`);
+        inferenceProgress.endRun(`Model "${model.name}" is not available on the server.`);
         return;
       }
       if (!useLocal && !aiServiceUrl) {
-        setError('Server runtime selected but aiServiceUrl is not configured.');
+        inferenceProgress.endRun('Server runtime selected but aiServiceUrl is not configured.');
         return;
       }
-      setRunningModelId(model.id);
-      setProgressPct(0);
-      setProgressText('Starting…');
+      inferenceProgress.startRun(model.id);
+      let runError: string | null = null;
       try {
         if (useLocal) {
           await runLocal(model, ctx.displaySet, ctx.activeViewportId);
@@ -381,15 +421,14 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
           type: 'success',
         });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setError(msg);
+        runError = err instanceof Error ? err.message : String(err);
         uiNotificationService?.show?.({
           title: 'AI Models',
-          message: `${model.name} failed: ${msg}`,
+          message: `${model.name} failed: ${runError}`,
           type: 'error',
         });
       } finally {
-        setRunningModelId(null);
+        inferenceProgress.endRun(runError);
       }
     },
     [aiServiceUrl, getActiveContext, runLocal, runServer, runtime, uiNotificationService]
@@ -410,8 +449,8 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
           100% { background-position: 28px 0; }
         }
         @keyframes ai-pulse-glow {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.0); }
-          50%      { box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18); }
+          0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.0); }
+          50%      { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.20); }
         }
         @keyframes ai-dot-bounce {
           0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
@@ -429,7 +468,7 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
           position: relative;
           height: 100%;
           border-radius: 9999px;
-          background-image: linear-gradient(90deg, #6366f1 0%, #8b5cf6 50%, #06b6d4 100%);
+          background-image: linear-gradient(90deg, #7f1d1d 0%, #dc2626 50%, #f87171 100%);
           background-size: 200% 100%;
           transition: width 200ms ease-out;
           overflow: hidden;
@@ -466,7 +505,7 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
         }
         .ai-running-card {
           animation: ai-pulse-glow 2.2s ease-in-out infinite;
-          border-color: rgba(99, 102, 241, 0.6) !important;
+          border-color: rgba(239, 68, 68, 0.55) !important;
         }
         .ai-dot {
           width: 4px;
@@ -480,16 +519,11 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
         .ai-dot:nth-child(3) { animation-delay: 0.30s; }
       `}</style>
       <div className="border-b border-border p-3 space-y-2">
-        <div className="flex items-center gap-2">
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-indigo-500 to-violet-500 text-[9px] font-bold text-white shadow-sm">
-            AI
-          </span>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold leading-tight text-foreground">AI Models</p>
-            <p className="text-[10px] leading-tight text-muted-foreground">
-              Segmentation & inference
-            </p>
-          </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold leading-tight text-foreground">AI Models</p>
+          <p className="text-[10px] leading-tight text-muted-foreground">
+            Segmentation & inference
+          </p>
         </div>
         <p className="text-xs uppercase tracking-wide text-muted-foreground pt-1">Inference runtime</p>
         <div className="flex overflow-hidden rounded-md border border-border">
@@ -586,7 +620,7 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
                   </div>
                   <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
                     <span className="flex items-center gap-1.5 min-w-0">
-                      <span className="inline-flex items-center gap-0.5 text-indigo-400">
+                      <span className="inline-flex items-center gap-0.5 text-red-400">
                         <span className="ai-dot" />
                         <span className="ai-dot" />
                         <span className="ai-dot" />

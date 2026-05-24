@@ -2,6 +2,7 @@
 
 import type { ImageVolume } from '../utils/extractDisplaySetVolume';
 import { runVertebraeInference } from './models/vertebrae';
+import type { AIProgressEvent } from './progress';
 
 export type WorkerRunMessage = {
   type: 'run';
@@ -12,9 +13,7 @@ export type WorkerRunMessage = {
 
 export type WorkerProgressMessage = {
   type: 'progress';
-  stage: string;
-  progress: number;
-  total: number;
+  event: AIProgressEvent;
 };
 
 export type WorkerResultMessage = {
@@ -49,13 +48,8 @@ scope.addEventListener('message', async (event: MessageEvent<WorkerRunMessage>) 
     if (modelId === 'vertebrae') {
       result = await runVertebraeInference(volume, {
         onnxUrl,
-        onProgress: (stage, progress, total) => {
-          const progressMsg: WorkerProgressMessage = {
-            type: 'progress',
-            stage,
-            progress,
-            total,
-          };
+        onProgress: event => {
+          const progressMsg: WorkerProgressMessage = { type: 'progress', event };
           scope.postMessage(progressMsg);
         },
       });

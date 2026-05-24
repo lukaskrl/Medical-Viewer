@@ -1,6 +1,7 @@
 import type { ImageVolume } from '../utils/extractDisplaySetVolume';
 import { VERTEBRAE_LABELS } from './models/vertebrae';
 import { runInWorker } from './runInWorker';
+import type { AIProgressEvent } from './progress';
 
 export interface LocalModelResult {
   data: Uint8Array;
@@ -20,7 +21,7 @@ export interface LocalModel {
   labelNames: Record<number, string>;
   run: (
     volume: ImageVolume,
-    opts: { onnxUrl: string; onProgress?: (stage: string, p: number, total: number) => void }
+    opts: { onnxUrl: string; onProgress?: (event: AIProgressEvent) => void }
   ) => Promise<LocalModelResult>;
 }
 

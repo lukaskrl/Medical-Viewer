@@ -4,6 +4,7 @@ import type {
   WorkerResultMessage,
   WorkerRunMessage,
 } from './inferenceWorker';
+import type { AIProgressEvent } from './progress';
 
 let workerInstance: Worker | null = null;
 let workerBusy = false;
@@ -22,7 +23,7 @@ function getWorker(): Worker {
 export interface RunInWorkerOptions {
   modelId: string;
   onnxUrl: string;
-  onProgress?: (stage: string, progress: number, total: number) => void;
+  onProgress?: (event: AIProgressEvent) => void;
 }
 
 export interface WorkerInferenceResult {
@@ -64,7 +65,7 @@ export function runInWorker(
       const msg = event.data;
       switch (msg.type) {
         case 'progress':
-          opts.onProgress?.(msg.stage, msg.progress, msg.total);
+          opts.onProgress?.(msg.event);
           break;
         case 'result': {
           cleanup();
