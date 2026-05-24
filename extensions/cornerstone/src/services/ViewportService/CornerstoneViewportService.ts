@@ -1062,7 +1062,7 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
 
     // Todo: use presentations states
     const volumesProperties = filteredVolumeInputArray.map(({ volumeInput, displaySetOptions }) => {
-      const { volumeId } = volumeInput;
+      const { volumeId, displaySetInstanceUID } = volumeInput;
       const { voi, voiInverted, colormap, displayPreset } = displaySetOptions;
       const properties = {} as ViewportProperties;
 
@@ -1086,7 +1086,7 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
         properties.preset = displayPreset[displaySetModality] || displayPreset.default;
       }
 
-      return { properties, volumeId };
+      return { properties, volumeId, displaySetInstanceUID };
     });
 
     // For SEG and RT viewports
@@ -1131,15 +1131,26 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     }
     viewport.render();
 
-    volumesProperties.forEach(({ properties, volumeId }) => {
+    volumesProperties.forEach(({ properties, volumeId, displaySetInstanceUID }) => {
       timeoutViewportCallback(() => {
         viewport.setProperties(properties, volumeId);
-        // In 3D viewports the volume rendering is hidden by default. Its
-        // preset is still applied so it is ready to display, but the user
-        // explicitly toggles it on via the viewport data overlay menu.
+        // In 3D viewports the CT volume is shown by default when no
+        // segmentations are loaded. If segmentations are added later,
+        // addSegmentationRepresentation hides the CT and shows the surfaces.
+        // Actors are keyed by referencedId (displaySetInstanceUID), not
+        // volumeId, so use getActors() with the same filter the command
+        // module uses rather than getActor(volumeId) which returns null.
         if (viewport.type === csEnums.ViewportType.VOLUME_3D) {
-          const actorEntry = viewport.getActor(volumeId);
-          actorEntry?.actor?.setVisibility(false);
+          const { segmentationService } = this.servicesManager.services;
+          const hasSurfaces =
+            segmentationService.getSegmentationRepresentations(viewport.id, {
+              type: csToolsEnums.SegmentationRepresentations.Surface,
+            }).length > 0;
+          viewport.getActors().forEach(actorEntry => {
+            if (actorEntry.referencedId?.includes(displaySetInstanceUID)) {
+              actorEntry.actor?.setVisibility(!hasSurfaces);
+            }
+          });
         }
         viewport.render();
       });

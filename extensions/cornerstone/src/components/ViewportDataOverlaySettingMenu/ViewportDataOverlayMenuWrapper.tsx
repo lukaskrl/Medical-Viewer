@@ -1,5 +1,6 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useEffect } from 'react';
 import { useSystem } from '@ohif/core';
+import { Enums as csEnums } from '@cornerstonejs/core';
 import {
   Button,
   Icons,
@@ -35,7 +36,23 @@ export function ViewportDataOverlayMenuWrapper(props: DataOverlayMenuProps): Rea
   };
 
   const { servicesManager } = useSystem();
-  const { toolbarService } = servicesManager.services;
+  const { toolbarService, cornerstoneViewportService } = servicesManager.services;
+
+  useEffect(() => {
+    const sub = cornerstoneViewportService.subscribe(
+      cornerstoneViewportService.EVENTS.VIEWPORT_VOLUMES_CHANGED,
+      ({ viewportInfo }) => {
+        if (viewportInfo.getViewportId() !== viewportId) {
+          return;
+        }
+        const csViewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+        if (csViewport?.type === csEnums.ViewportType.VOLUME_3D) {
+          onOpen?.();
+        }
+      }
+    );
+    return () => sub.unsubscribe();
+  }, [viewportId, onOpen, cornerstoneViewportService]);
 
   const { align, side } = toolbarService.getAlignAndSide(location);
 

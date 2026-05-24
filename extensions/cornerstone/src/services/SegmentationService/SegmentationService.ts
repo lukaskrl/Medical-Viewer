@@ -341,12 +341,23 @@ class SegmentationService extends PubSubService {
       config
     );
 
-    // In 3D volume viewports, surface segmentations should be visible by
-    // default — the user opts out via the per-item toggle in the viewport
-    // data overlay menu. Volume rendering, by contrast, is hidden by default
-    // (see CornerstoneViewportService._setVolumesForViewport).
-    if (representationTypeToUse === SURFACE) {
+    // In 3D viewports: show the segmentation surface and hide the CT volume.
+    // If no segmentations were loaded the CT is shown by default; adding a
+    // segmentation switches the viewport to segmentation-only mode so the
+    // render doesn't visually compete with the surfaces.
+    if (representationTypeToUse === SURFACE && csViewport.type === ViewportType.VOLUME_3D) {
       this._setSegmentationRepresentationVisibility(viewportId, segmentationId, SURFACE, true);
+      const { cornerstoneViewportService } = this.servicesManager.services;
+      const viewportDisplaySets = cornerstoneViewportService.getViewportDisplaySets(viewportId);
+      const ctUIDs = viewportDisplaySets
+        .filter(ds => !ds.isOverlayDisplaySet)
+        .map(ds => ds.displaySetInstanceUID);
+      csViewport.getActors().forEach(actorEntry => {
+        if (ctUIDs.some(uid => actorEntry.referencedId?.includes(uid))) {
+          actorEntry.actor?.setVisibility(false);
+        }
+      });
+      csViewport.render();
     }
 
     if (!suppressEvents) {
