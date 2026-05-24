@@ -4,6 +4,11 @@ window.config = {
   showStudyList: true,
   extensions: [],
   modes: [],
+  // AI inference FastAPI service (browser ↔ server). Hide the server option
+  // by setting this to '' or removing it.
+  aiServiceUrl: 'http://localhost:8000',
+  // Path where ONNX model files are served from public/.
+  aiModelsPath: '/ai-models',
   // below flag is for performance reasons, but it might not work for all servers
   showWarningMessageForCrossOrigin: true,
   showCPUFallbackMessage: true,
@@ -103,6 +108,9 @@ window.config = {
       },
     },
   ],
+  investigationalUseDialog: {
+    option: 'never',
+  },
   httpErrorHandler: error => {
     console.warn(`HTTP Error Handler (status: ${error.status})`, error);
   },

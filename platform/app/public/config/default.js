@@ -24,6 +24,12 @@ window.config = {
   extensions: [],
   modes: [],
   customizationService: {},
+  // URL of the AI inference FastAPI service (used by the AI Models panel
+  // when "On AI server" is selected). Leave empty to hide the server option.
+  aiServiceUrl: 'http://localhost:8000',
+  // Path where ONNX model files are served (for browser-side inference).
+  // Must match the folder under platform/app/public/.
+  aiModelsPath: '/ai-models',
   showStudyList: true,
   // some windows systems have issues with more than 3 web workers
   maxNumberOfWebWorkers: 3,
@@ -286,6 +292,9 @@ window.config = {
       },
     },
   ],
+  investigationalUseDialog: {
+    option: 'never',
+  },
   httpErrorHandler: error => {
     // This is 429 when rejected from the public idc sandbox too often.
     console.warn(error.status);

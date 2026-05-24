@@ -5,6 +5,7 @@ import PanelSegmentation from './panels/PanelSegmentation';
 import ActiveViewportWindowLevel from './components/ActiveViewportWindowLevel';
 import PanelMeasurement from './panels/PanelMeasurement';
 import PanelAIAssistant from './panels/PanelAIAssistant';
+import PanelAIModels from './panels/PanelAIModels';
 import { SegmentationRepresentations } from '@cornerstonejs/tools/enums';
 import i18n from '@ohif/i18n';
 
@@ -88,6 +89,18 @@ const getPanelModule = ({ commandsManager, servicesManager, extensionManager }: 
       iconLabel: 'AI',
       label: 'AI Assistant',
       component: () => <PanelAIAssistant servicesManager={servicesManager} />,
+    },
+    {
+      name: 'panelAIModels',
+      iconName: 'tab-ai-assistant',
+      iconLabel: 'Models',
+      label: 'AI Models',
+      component: () => (
+        <PanelAIModels
+          servicesManager={servicesManager}
+          commandsManager={commandsManager}
+        />
+      ),
     },
     {
       name: 'panelSegmentation',

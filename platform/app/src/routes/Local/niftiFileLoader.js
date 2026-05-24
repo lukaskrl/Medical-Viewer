@@ -501,14 +501,24 @@ async function addNiftiToMetadataStore(file, options = {}) {
       instance.referencedSeriesInstanceUID = options.referenceSeriesInstanceUID || null;
       instance.referencedDisplaySetInstanceUID = options.referenceDisplaySetInstanceUID || null;
       instance.isDerivedDisplaySet = true;
+      if (options.segmentLabels && typeof options.segmentLabels === 'object') {
+        instance.segmentLabels = options.segmentLabels;
+      }
+      if (options.seriesDescription) {
+        instance.SeriesDescription = options.seriesDescription;
+      }
     }
 
     return instance;
   });
 
-  for (const instance of instances) {
-    DicomMetadataStore.addInstance(instance);
-  }
+  // Use addInstances (plural) so DicomMetadataStore fires INSTANCES_ADDED. The
+  // mode's defaultRouteInit subscribes to that event to call makeDisplaySets;
+  // without it, an in-viewer caller (e.g. the AI panel) adds instances but the
+  // SEG display set is never created. The per-instance addInstance loop only
+  // happens to work during initial upload because navigation re-triggers the
+  // metadata retrieval path.
+  DicomMetadataStore.addInstances(instances, true);
 
   return StudyInstanceUID;
 }

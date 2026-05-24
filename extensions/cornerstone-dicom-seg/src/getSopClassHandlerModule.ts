@@ -173,10 +173,18 @@ async function _loadNiftiSegments({ segDisplaySet, servicesManager }) {
     }
   });
 
+  // Optional per-index label overrides, e.g. {1: 'L5', 2: 'L4', …} from the
+  // AI Models panel after a vertebrae inference. Falls back to "Segment N".
+  const segmentLabelOverrides: Record<string | number, string> | undefined =
+    (segDisplaySet.instance && (segDisplaySet.instance as { segmentLabels?: Record<string | number, string> }).segmentLabels) ||
+    undefined;
+
   sortedSegmentIndices.forEach((segmentIndex, idx) => {
+    const overrideLabel =
+      segmentLabelOverrides?.[segmentIndex] ?? segmentLabelOverrides?.[String(segmentIndex)];
     segMetadataData.push({
       SegmentNumber: String(segmentIndex),
-      SegmentLabel: `Segment ${segmentIndex}`,
+      SegmentLabel: overrideLabel || `Segment ${segmentIndex}`,
       SegmentAlgorithmType: 'AUTOMATIC',
       SegmentAlgorithmName: 'NIfTI Import',
       SegmentedPropertyCategoryCodeSequence: {

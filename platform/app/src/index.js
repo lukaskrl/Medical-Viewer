@@ -17,10 +17,16 @@ import React from 'react';
  */
 import { modes as defaultModes, extensions as defaultExtensions } from './pluginImports';
 import loadDynamicConfig from './loadDynamicConfig';
+import { addNiftiToMetadataStore } from './routes/Local/niftiFileLoader';
+import { registerNiftiSegmentationLoader } from '@ohif/extension-cornerstone';
 export { history } from './utils/history';
 export { preserveQueryParameters, preserveQueryStrings } from './utils/preserveQueryParameters';
 export { default as ViewerDicomUpload } from './routes/Local/ViewerDicomUpload';
 export { default as ViewerDicomUploadButton } from './routes/Local/ViewerDicomUploadButton';
+
+// Let the AI Models panel hand predicted segmentations to the same loader used
+// by drag-and-drop NIfTI uploads.
+registerNiftiSegmentationLoader(addNiftiToMetadataStore);
 
 loadDynamicConfig(window.config).then(config_json => {
   // Reset Dynamic config if defined

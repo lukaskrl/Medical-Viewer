@@ -1,0 +1,19 @@
+# FastAPI service for AI model inference.
+# Installs the inference deps already needed by ai/main.py too.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+
+# Inference dependencies (mirrors what ai/main.py imports).
+# torch is intentionally unpinned — install the CUDA/CPU build that matches
+# your machine from https://pytorch.org first, then `pip install -r requirements.txt`.
+torch
+nibabel>=5.0
+numpy>=1.24
+scipy>=1.10
+scikit-image>=0.21
+nnunet>=1.7
+
+# Optional, needed only by ai/export_onnx.py:
+# onnx>=1.16
+# onnxruntime>=1.18

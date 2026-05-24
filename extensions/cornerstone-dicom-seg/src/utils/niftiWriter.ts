@@ -3,26 +3,49 @@ import type { SegmentationVolume } from './extractSegmentationVolume';
 
 // NIfTI-1 datatype codes
 const DT_UINT8 = 2;
+const DT_INT16 = 4;
+const DT_FLOAT32 = 16;
 const DT_UINT16 = 512;
 
 const HEADER_SIZE = 348;
 const VOX_OFFSET = 352; // header + 4 bytes padding to align voxel data
 
 /**
- * Write a NIfTI-1 single-file (.nii) buffer for the given segmentation volume.
+ * Volume payload accepted by buildNiftiBuffer. SegmentationVolume narrows
+ * `data` to label types (Uint8/Uint16); this widens to also accept raw CT
+ * payloads (Int16 / Float32) so the same writer can serialize image volumes
+ * for AI inference uploads.
+ */
+export type NiftiWritableVolume = Omit<SegmentationVolume, 'data'> & {
+  data: Uint8Array | Uint16Array | Int16Array | Float32Array;
+};
+
+function pickDatatype(data: NiftiWritableVolume['data']): { datatype: number; bitpix: number } {
+  if (data instanceof Float32Array) {
+    return { datatype: DT_FLOAT32, bitpix: 32 };
+  }
+  if (data instanceof Int16Array) {
+    return { datatype: DT_INT16, bitpix: 16 };
+  }
+  if (data instanceof Uint16Array) {
+    return { datatype: DT_UINT16, bitpix: 16 };
+  }
+  return { datatype: DT_UINT8, bitpix: 8 };
+}
+
+/**
+ * Write a NIfTI-1 single-file (.nii) buffer for the given volume.
  *
  * The affine is built so voxel index (i, j, k) maps to the patient point at
  * voxel center in NIfTI's canonical RAS+ space (mm). DICOM stores geometry in
  * LPS, so we negate the X and Y rows when writing sform/qform.
  */
-export function buildNiftiBuffer(volume: SegmentationVolume): ArrayBuffer {
+export function buildNiftiBuffer(volume: NiftiWritableVolume): ArrayBuffer {
   const { data, width, height, depth, spacing, origin, rowDirection, columnDirection, sliceDirection } =
     volume;
 
-  const isUint16 = data instanceof Uint16Array;
-  const datatype = isUint16 ? DT_UINT16 : DT_UINT8;
-  const bitpix = isUint16 ? 16 : 8;
-  const bytesPerVoxel = isUint16 ? 2 : 1;
+  const { datatype, bitpix } = pickDatatype(data);
+  const bytesPerVoxel = bitpix / 8;
 
   const voxelBytes = data.byteLength;
   const totalSize = VOX_OFFSET + voxelBytes;
@@ -173,12 +196,10 @@ export function buildNiftiBuffer(volume: SegmentationVolume): ArrayBuffer {
   // bytes 348..351 are padding zeros before voxel data — already zero.
 
   // ---- Voxel data ----
+  // Copy the raw bytes of the typed array regardless of element size — the
+  // header above already declared the correct datatype/bitpix.
   const dataView = new Uint8Array(buffer, VOX_OFFSET, voxelBytes);
-  if (isUint16) {
-    dataView.set(new Uint8Array(data.buffer, data.byteOffset, voxelBytes));
-  } else {
-    dataView.set(data as Uint8Array);
-  }
+  dataView.set(new Uint8Array(data.buffer, data.byteOffset, voxelBytes));
 
   // bytesPerVoxel unused but kept for clarity of the byte-count math above.
   void bytesPerVoxel;

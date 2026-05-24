@@ -66,6 +66,7 @@
     "@kitware/vtk.js": "34.15.1",
     "html2canvas": "1.4.1",
     "immutability-helper": "3.1.1",
+    "onnxruntime-web": "1.22.0",
     "lodash.compact": "3.0.1",
     "lodash.debounce": "4.0.8",
     "lodash.flatten": "4.4.0",

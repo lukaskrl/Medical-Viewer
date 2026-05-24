@@ -299,4 +299,14 @@ export {
 
 // Export constants
 export { VOLUME_LOADER_SCHEME, DYNAMIC_VOLUME_LOADER_SCHEME } from './constants';
+
+// AI Models bridge: platform/app registers the NIfTI segmentation loader here
+// so the AI Models panel can hand off predicted segmentations without taking a
+// hard dependency on platform/app.
+export {
+  registerNiftiSegmentationLoader,
+  getNiftiSegmentationLoader,
+} from './ai/niftiSegmentationBridge';
+export type { AddNiftiOptions, AddNiftiToMetadataStore } from './ai/niftiSegmentationBridge';
+
 export default cornerstoneExtension;
