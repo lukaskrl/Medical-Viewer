@@ -32,6 +32,7 @@ import {
   callInputDialogAutoComplete,
   createReportAsync,
   colorPickerDialog,
+  opacitySliderDialog,
   callInputDialog,
 } from '@ohif/extension-default';
 import { vec3, mat4 } from 'gl-matrix';
@@ -2094,6 +2095,26 @@ function commandsModule({
       });
     },
 
+    editSegmentOpacity: ({ segmentationId, segmentIndex }) => {
+      const { segmentationService, uiDialogService } = servicesManager.services;
+      const currentOpacity = segmentationService.getSegmentOpacity(segmentationId, segmentIndex);
+
+      uiDialogService.show({
+        content: opacitySliderDialog,
+        title: i18n.t('Tools:Segment Opacity'),
+        contentProps: {
+          value: currentOpacity,
+          // Live preview while dragging the slider.
+          onChange: (newOpacity: number) => {
+            segmentationService.setSegmentOpacity(segmentationId, segmentIndex, newOpacity);
+          },
+          onSave: (newOpacity: number) => {
+            segmentationService.setSegmentOpacity(segmentationId, segmentIndex, newOpacity);
+          },
+        },
+      });
+    },
+
     getRenderInactiveSegmentations: () => {
       const { segmentationService, viewportGridService } = servicesManager.services;
       return segmentationService.getRenderInactiveSegmentations(
@@ -2985,6 +3006,9 @@ function commandsModule({
     },
     editSegmentColor: {
       commandFn: actions.editSegmentColor,
+    },
+    editSegmentOpacity: {
+      commandFn: actions.editSegmentOpacity,
     },
     getRenderInactiveSegmentations: {
       commandFn: actions.getRenderInactiveSegmentations,

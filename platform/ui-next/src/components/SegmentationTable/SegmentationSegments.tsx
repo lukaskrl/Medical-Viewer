@@ -10,6 +10,7 @@ export const SegmentationSegments = ({ children = null }: { children?: React.Rea
     activeSegmentationId,
     disableEditing,
     onSegmentColorClick,
+    onSegmentOpacityClick,
     onToggleSegmentVisibility,
     onToggleSegmentLock,
     onSegmentClick,
@@ -152,6 +153,11 @@ export const SegmentationSegments = ({ children = null }: { children?: React.Rea
                 disableEditing={disableEditing}
                 className={!isActiveSegmentation ? 'opacity-80' : ''}
                 onColor={() => onSegmentColorClick(segmentation.segmentationId, segmentIndex)}
+                onOpacity={
+                  onSegmentOpacityClick
+                    ? () => onSegmentOpacityClick(segmentation.segmentationId, segmentIndex)
+                    : undefined
+                }
                 onToggleVisibility={() =>
                   onToggleSegmentVisibility(
                     segmentation.segmentationId,

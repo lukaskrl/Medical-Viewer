@@ -107,6 +107,7 @@ interface DataRowProps {
   //
   colorHex?: string;
   onColor: (e) => void;
+  onOpacity?: (e) => void;
   onCopy?: (e) => void;
   className?: string;
   children?: React.ReactNode;
@@ -126,6 +127,7 @@ const DataRowComponent = React.forwardRef<HTMLDivElement, DataRowProps>(
       onRename,
       onDelete,
       onColor,
+      onOpacity,
       onCopy,
       isSelected = false,
       isSecondarySelected = false,
@@ -165,6 +167,9 @@ const DataRowComponent = React.forwardRef<HTMLDivElement, DataRowProps>(
           break;
         case 'Color':
           onColor(e);
+          break;
+        case 'Opacity':
+          onOpacity?.(e);
           break;
       }
     };
@@ -397,6 +402,17 @@ const DataRowComponent = React.forwardRef<HTMLDivElement, DataRowProps>(
                           data-cy="Change Color"
                         >
                           {t('Change Color')}
+                        </span>
+                      </DropdownMenuItem>
+                    )}
+                    {onOpacity && (
+                      <DropdownMenuItem onClick={e => handleAction('Opacity', e)}>
+                        <Icons.Hide className="text-foreground" />
+                        <span
+                          className="pl-2"
+                          data-cy="Change Opacity"
+                        >
+                          {t('Change Opacity')}
                         </span>
                       </DropdownMenuItem>
                     )}

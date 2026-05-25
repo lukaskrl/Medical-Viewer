@@ -105,6 +105,7 @@ class SegmentationService extends PubSubService {
 
   private _segmentationIdToColorLUTIndexMap: Map<string, number>;
   private _segmentationGroupStatsMap: Map<string, any>;
+  private _segmentOpacityMap: Map<string, Map<number, number>>;
   readonly servicesManager: AppTypes.ServicesManager;
   highlightIntervalId = null;
   readonly EVENTS = EVENTS;
@@ -117,6 +118,8 @@ class SegmentationService extends PubSubService {
     this.servicesManager = servicesManager;
 
     this._segmentationGroupStatsMap = new Map();
+
+    this._segmentOpacityMap = new Map();
   }
 
   public onModeEnter(): void {
@@ -1224,6 +1227,80 @@ class SegmentationService extends PubSubService {
   }
 
   /**
+   * Gets the current opacity (0..1) for a specific segment.
+   * Returns the last value set via setSegmentOpacity, or 1 if none has been set.
+   */
+  public getSegmentOpacity(segmentationId: string, segmentIndex: number): number {
+    return this._segmentOpacityMap.get(segmentationId)?.get(segmentIndex) ?? 1;
+  }
+
+  /**
+   * Sets the opacity (0..1) of a specific segment across all viewports that contain
+   * the segmentation. Applies to the 2D Labelmap (and Contour) rendering via the
+   * per-segment fillAlpha style override, and to the 3D Surface rendering by
+   * setting the opacity on the underlying vtk actor.
+   */
+  public setSegmentOpacity(segmentationId: string, segmentIndex: number, opacity: number): void {
+    const clamped = Math.max(0, Math.min(1, opacity));
+
+    if (!this._segmentOpacityMap.has(segmentationId)) {
+      this._segmentOpacityMap.set(segmentationId, new Map());
+    }
+    this._segmentOpacityMap.get(segmentationId).set(segmentIndex, clamped);
+
+    // 2D representations: per-segment fillAlpha override.
+    [LABELMAP, CONTOUR].forEach(type => {
+      cstSegmentation.config.style.setStyle(
+        { segmentationId, segmentIndex, type },
+        { fillAlpha: clamped }
+      );
+    });
+
+    // 3D Surface representation: update the vtk actor opacity per viewport.
+    const viewportIds = this.getViewportIdsWithSegmentation(segmentationId);
+    viewportIds.forEach(viewportId => {
+      this._applySurfaceOpacity(viewportId, segmentationId, segmentIndex, clamped);
+    });
+
+    this._broadcastEvent(EVENTS.SEGMENTATION_STYLE_MODIFIED, {
+      specifier: { segmentationId, segmentIndex },
+      style: { fillAlpha: clamped, opacity: clamped },
+      merge: true,
+    });
+  }
+
+  private _applySurfaceOpacity(
+    viewportId: string,
+    segmentationId: string,
+    segmentIndex: number,
+    opacity: number
+  ): void {
+    const enabledElement = getEnabledElementByViewportId(viewportId);
+    if (!enabledElement) {
+      return;
+    }
+    const { viewport } = enabledElement;
+    if (!viewport || typeof viewport.getActors !== 'function') {
+      return;
+    }
+    const representationUID = `${segmentationId}-${SURFACE}-${segmentIndex}`;
+    const actorEntry = viewport
+      .getActors()
+      .find(a => a.representationUID === representationUID);
+    if (!actorEntry?.actor) {
+      return;
+    }
+    // Surface actors are vtkActor — its property exposes setOpacity, but the
+    // union type returned by getProperty() doesn't, so cast loosely here.
+    const property = actorEntry.actor.getProperty?.() as { setOpacity?: (v: number) => void };
+    if (!property?.setOpacity) {
+      return;
+    }
+    property.setOpacity(opacity);
+    viewport.render?.();
+  }
+
+  /**
    * Gets the labelmap volume for a segmentation
    * @param segmentationId - The ID of the segmentation to get the labelmap volume for
    * @returns The labelmap volume for the segmentation, or null if not found
@@ -2262,6 +2339,21 @@ class SegmentationService extends PubSubService {
     this._broadcastEvent(this.EVENTS.SEGMENTATION_REPRESENTATION_MODIFIED, {
       segmentationId,
       viewportId,
+    });
+
+    // Surface actors are re-created when the polyseg recomputes the mesh, so
+    // any user-set opacity needs to be re-applied to the new actor.
+    const opacityMap = this._segmentOpacityMap.get(segmentationId);
+    if (!opacityMap || opacityMap.size === 0) {
+      return;
+    }
+    const viewportIds = viewportId
+      ? [viewportId]
+      : this.getViewportIdsWithSegmentation(segmentationId);
+    viewportIds.forEach(vpId => {
+      opacityMap.forEach((opacity, segmentIndex) => {
+        this._applySurfaceOpacity(vpId, segmentationId, segmentIndex, opacity);
+      });
     });
   };
 

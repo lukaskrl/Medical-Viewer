@@ -135,6 +135,9 @@ export default function PanelSegmentation({
     onSegmentColorClick: (segmentationId, segmentIndex) => {
       commandsManager.run('editSegmentColor', { segmentationId, segmentIndex });
     },
+    onSegmentOpacityClick: (segmentationId, segmentIndex) => {
+      commandsManager.run('editSegmentOpacity', { segmentationId, segmentIndex });
+    },
     onSegmentDelete: (segmentationId, segmentIndex) => {
       commandsManager.run('deleteSegment', { segmentationId, segmentIndex });
     },
