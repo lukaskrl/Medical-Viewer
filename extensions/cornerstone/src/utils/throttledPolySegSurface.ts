@@ -33,9 +33,7 @@ type RawSurface = {
 
 type Bbox = { iMin: number; iMax: number; jMin: number; jMax: number; kMin: number; kMax: number };
 
-// Flip to false (or gate on an env flag) once we're done diagnosing the
-// multi-label 3D surface crash.
-const DEBUG = true;
+const DEBUG = false;
 const LOG_TAG = '[polySeg-surface]';
 
 type AnyTypedArray =
@@ -93,6 +91,31 @@ export async function throttledComputeSurfaceData(
   } finally {
     inFlightSurfaceComputes.delete(segmentationId);
   }
+}
+
+// Drop-in replacement for @cornerstonejs/polymorphic-segmentation's
+// updateSurfaceData. Upstream's version runs `Promise.all` over all segments
+// in parallel — each task receives a structured-clone copy of the full
+// labelmap scalar array, so memory peaks at N_segments × volume_size and
+// OOMs the tab.
+//
+// The original `updateSurfaceData` is wired in via
+// `addDefaultSegmentationListener` in cornerstone-tools, debounced 300ms on
+// SEGMENTATION_DATA_MODIFIED. After a 3D viewport has been closed and
+// reopened, MPR's `addLabelmapToElement` calls
+// `triggerSegmentationDataModified`, which wakes that listener up — that's
+// the path that causes the "crashes on second 3D open" bug. By delegating
+// here, the update goes through the same sequential, bbox-clipped path as
+// the initial compute and stays under memory.
+//
+// The caller (segmentationEventManager.createDebouncedSegmentationListener)
+// ignores the return value, so we don't need to match the upstream signature
+// beyond "returns a Promise".
+export async function throttledUpdateSurfaceData(
+  segmentationId: string,
+  options: ComputeSurfaceOptions = {}
+): Promise<void> {
+  await throttledComputeSurfaceData(segmentationId, options);
 }
 
 async function computeSurfaceDataInternal(

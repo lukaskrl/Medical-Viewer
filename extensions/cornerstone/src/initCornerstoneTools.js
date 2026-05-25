@@ -55,7 +55,10 @@ import { getLabelmapActorEntries } from '@cornerstonejs/tools/segmentation/helpe
 
 import CalibrationLineTool from './tools/CalibrationLineTool';
 import ImageOverlayViewerTool from './tools/ImageOverlayViewerTool';
-import { throttledComputeSurfaceData } from './utils/throttledPolySegSurface';
+import {
+  throttledComputeSurfaceData,
+  throttledUpdateSurfaceData,
+} from './utils/throttledPolySegSurface';
 
 const PROBE_TOOL_NAMES = new Set([ProbeTool.toolName, DragProbeTool.toolName]);
 const CLOSEST_SLICE_EPSILON_MM = 1e-3;
@@ -262,13 +265,22 @@ export default function initCornerstoneTools() {
   AdvancedMagnifyTool.isAnnotation = false;
   PlanarFreehandContourSegmentationTool.isAnnotation = false;
 
-  // Wrap the polySeg namespace so we can replace computeSurfaceData with a
-  // sequential implementation. The upstream version fans out one worker task
-  // per segment index in parallel, which OOMs the tab on labelmaps with many
-  // labels (see utils/throttledPolySegSurface.ts).
+  // Wrap the polySeg namespace so we can replace BOTH computeSurfaceData and
+  // updateSurfaceData with sequential implementations. The upstream versions
+  // fan out one worker task per segment index in parallel, each carrying a
+  // full structured-clone copy of the labelmap scalar array; that OOMs the
+  // tab on labelmaps with many labels.
+  //
+  // updateSurfaceData is the path triggered after a 3D viewport is closed and
+  // reopened: MPR's addLabelmapToElement fires SEGMENTATION_DATA_MODIFIED,
+  // which wakes a debounced listener registered when the surface
+  // representation was first added, which calls updateSurfaceData. Without
+  // throttling that path, the tab crashes on the second 3D open.
+  // See utils/throttledPolySegSurface.ts.
   const throttledPolySeg = {
     ...polySeg,
     computeSurfaceData: throttledComputeSurfaceData,
+    updateSurfaceData: throttledUpdateSurfaceData,
   };
 
   init({
