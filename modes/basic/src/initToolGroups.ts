@@ -118,6 +118,44 @@ function getLabelMapSegmentationTools(toolNames) {
   ];
 }
 
+function getContourSegmentationTools(toolNames) {
+  return [
+    { toolName: toolNames.PlanarFreehandContourSegmentation },
+    { toolName: toolNames.LivewireContourSegmentation },
+    { toolName: toolNames.SculptorTool },
+    {
+      toolName: 'CatmullRomSplineROI',
+      parentTool: toolNames.SplineContourSegmentation,
+      configuration: {
+        spline: {
+          type: 'CATMULLROM',
+          enableTwoPointPreview: true,
+        },
+      },
+    },
+    {
+      toolName: 'LinearSplineROI',
+      parentTool: toolNames.SplineContourSegmentation,
+      configuration: {
+        spline: {
+          type: 'LINEAR',
+          enableTwoPointPreview: true,
+        },
+      },
+    },
+    {
+      toolName: 'BSplineROI',
+      parentTool: toolNames.SplineContourSegmentation,
+      configuration: {
+        spline: {
+          type: 'BSPLINE',
+          enableTwoPointPreview: true,
+        },
+      },
+    },
+  ];
+}
+
 function initDefaultToolGroup(extensionManager, toolGroupService, commandsManager, toolGroupId) {
   const utilityModule = extensionManager.getModuleEntry(
     '@ohif/extension-cornerstone.utilityModule.tools'
@@ -166,6 +204,7 @@ function initDefaultToolGroup(extensionManager, toolGroupService, commandsManage
       },
       { toolName: toolNames.Bidirectional },
       ...getLabelMapSegmentationTools(toolNames),
+      ...getContourSegmentationTools(toolNames),
       { toolName: toolNames.DragProbe },
       { toolName: toolNames.Probe },
       { toolName: toolNames.EllipticalROI },
@@ -315,6 +354,7 @@ function initMPRToolGroup(extensionManager, toolGroupService, commandsManager) {
       },
       { toolName: toolNames.Bidirectional },
       ...getLabelMapSegmentationTools(toolNames),
+      ...getContourSegmentationTools(toolNames),
       { toolName: toolNames.DragProbe },
       { toolName: toolNames.Probe },
       { toolName: toolNames.EllipticalROI },

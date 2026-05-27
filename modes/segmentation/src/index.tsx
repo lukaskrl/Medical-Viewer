@@ -14,6 +14,9 @@ function modeFactory({ modeConfiguration }) {
      */
     id,
     routeName: 'segmentation',
+    // Functionality has been ported into the basic mode; hide this mode from
+    // the worklist but keep it registered as a fallback.
+    hide: true,
     /**
      * Mode name, which is displayed in the viewer's UI in the workList, for the
      * user to select the mode.

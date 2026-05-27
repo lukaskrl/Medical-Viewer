@@ -34,6 +34,7 @@ export const longitudinalInstance = {
     leftPanels: [tracked.thumbnailList],
     rightPanels: [
       cornerstone.labelMapSegmentationPanel,
+      cornerstone.contourSegmentationPanel,
       tracked.measurements,
       cornerstone.aiAssistantPanel,
       cornerstone.aiModelsPanel,

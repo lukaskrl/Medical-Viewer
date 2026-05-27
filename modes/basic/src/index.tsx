@@ -4,11 +4,12 @@ import { ToolbarService, utils } from '@ohif/core';
 import initToolGroups from './initToolGroups';
 import toolbarButtons from './toolbarButtons';
 import segmentationToolbarButtons from '../../segmentation/src/toolbarButtons';
+import setUpAutoTabSwitchHandler from './utils/setUpAutoTabSwitchHandler';
 import { id } from './id';
 
 const { TOOLBAR_SECTIONS } = ToolbarService;
 const { structuredCloneWithFunctions } = utils;
-const labelMapSegmentationToolbarButtonIds = new Set([
+const segmentationToolbarButtonIds = new Set([
   'BrushTools',
   'LabelMapUtilities',
   'LabelMapTools',
@@ -22,13 +23,22 @@ const labelMapSegmentationToolbarButtonIds = new Set([
   'Threshold',
   'Shapes',
   'LabelMapEditWithContour',
+  'ContourTools',
+  'ContourUtilities',
+  'PlanarFreehandContourSegmentationTool',
+  'SculptorTool',
+  'SplineContourSegmentationTool',
+  'LivewireContourSegmentationTool',
+  'LogicalContourOperations',
+  'SimplifyContours',
+  'SmoothContours',
 ]);
-const labelMapSegmentationToolbarButtons = segmentationToolbarButtons.filter(segmentationButton =>
-  labelMapSegmentationToolbarButtonIds.has(segmentationButton.id)
+const filteredSegmentationToolbarButtons = segmentationToolbarButtons.filter(segmentationButton =>
+  segmentationToolbarButtonIds.has(segmentationButton.id)
 );
 const mergedToolbarButtons = [
   ...toolbarButtons,
-  ...labelMapSegmentationToolbarButtons.filter(
+  ...filteredSegmentationToolbarButtons.filter(
     segmentationButton =>
       !toolbarButtons.some(toolbarButton => toolbarButton.id === segmentationButton.id)
   ),
@@ -163,11 +173,16 @@ export function onModeEnter({
   servicesManager,
   extensionManager,
   commandsManager,
-  panelService,
-  segmentationService,
 }: withAppTypes) {
-  const { measurementService, toolbarService, toolGroupService, customizationService } =
-    servicesManager.services;
+  const {
+    measurementService,
+    toolbarService,
+    toolGroupService,
+    customizationService,
+    viewportGridService,
+    segmentationService,
+    panelService,
+  } = servicesManager.services;
 
   measurementService.clearMeasurements();
 
@@ -175,8 +190,8 @@ export function onModeEnter({
   initToolGroups(extensionManager, toolGroupService, commandsManager);
 
   toolbarService.register(this.toolbarButtons);
-  // Keep labelmap segmentation controls available even if mode config overrides toolbarButtons.
-  toolbarService.register(labelMapSegmentationToolbarButtons);
+  // Keep segmentation controls available even if mode config overrides toolbarButtons.
+  toolbarService.register(filteredSegmentationToolbarButtons);
 
   for (const [key, section] of Object.entries(this.toolbarSections)) {
     toolbarService.updateSection(key, section);
@@ -204,42 +219,54 @@ export function onModeEnter({
   ]);
   toolbarService.updateSection('BrushTools', ['Brush', 'Eraser', 'Threshold']);
 
+  toolbarService.updateSection(toolbarService.sections.contourSegmentationToolbox, [
+    'ContourTools',
+  ]);
+  toolbarService.updateSection('ContourTools', [
+    'PlanarFreehandContourSegmentationTool',
+    'SculptorTool',
+    'SplineContourSegmentationTool',
+    'LivewireContourSegmentationTool',
+  ]);
+  toolbarService.updateSection(toolbarService.sections.contourSegmentationUtilities, [
+    'ContourUtilities',
+  ]);
+  toolbarService.updateSection('ContourUtilities', [
+    'LogicalContourOperations',
+    'SimplifyContours',
+    'SmoothContours',
+  ]);
+
   customizationService.setCustomizations({
     'panelSegmentation.disableEditing': {
       $set: !this.enableSegmentationEdit,
     },
   });
 
-  // // ActivatePanel event trigger for when a segmentation or measurement is added.
-  // // Do not force activation so as to respect the state the user may have left the UI in.
-  if (this.activatePanelTrigger) {
-    this._activatePanelTriggersSubscriptions = [
-      ...panelService.addActivatePanelTriggers(
-        cornerstone.labelMapSegmentationPanel,
-        [
-          {
-            sourcePubSubService: segmentationService,
-            sourceEvents: [segmentationService.EVENTS.SEGMENTATION_ADDED],
-          },
-        ],
-        true
-      ),
-      ...panelService.addActivatePanelTriggers(
-        cornerstone.measurements,
-        [
-          {
-            sourcePubSubService: measurementService,
-            sourceEvents: [
-              measurementService.EVENTS.MEASUREMENT_ADDED,
-              measurementService.EVENTS.RAW_MEASUREMENT_ADDED,
-            ],
-          },
-        ],
-        true
-      ),
-      true,
-    ];
-  }
+  // ActivatePanel event triggers for when a segmentation or measurement is added.
+  // Do not force activation so as to respect the state the user may have left the UI in.
+  const { unsubscribeAutoTabSwitchEvents } = setUpAutoTabSwitchHandler({
+    segmentationService,
+    viewportGridService,
+    panelService,
+  });
+
+  this._activatePanelTriggersSubscriptions = [
+    ...unsubscribeAutoTabSwitchEvents.map(unsubscribe => ({ unsubscribe })),
+    ...panelService.addActivatePanelTriggers(
+      cornerstone.measurements,
+      [
+        {
+          sourcePubSubService: measurementService,
+          sourceEvents: [
+            measurementService.EVENTS.MEASUREMENT_ADDED,
+            measurementService.EVENTS.RAW_MEASUREMENT_ADDED,
+          ],
+        },
+      ],
+      true
+    ),
+  ];
 }
 
 export function onModeExit({ servicesManager }: withAppTypes) {
@@ -342,6 +369,15 @@ export const toolbarSections = {
   [TOOLBAR_SECTIONS.labelMapSegmentationUtilities]: ['LabelMapUtilities'],
   LabelMapUtilities: ['InterpolateLabelmap', 'SegmentBidirectional'],
   BrushTools: ['Brush', 'Eraser', 'Threshold'],
+  [TOOLBAR_SECTIONS.contourSegmentationToolbox]: ['ContourTools'],
+  ContourTools: [
+    'PlanarFreehandContourSegmentationTool',
+    'SculptorTool',
+    'SplineContourSegmentationTool',
+    'LivewireContourSegmentationTool',
+  ],
+  [TOOLBAR_SECTIONS.contourSegmentationUtilities]: ['ContourUtilities'],
+  ContourUtilities: ['LogicalContourOperations', 'SimplifyContours', 'SmoothContours'],
 };
 
 export const basicLayout = {
@@ -351,6 +387,7 @@ export const basicLayout = {
     leftPanelResizable: true,
     rightPanels: [
       cornerstone.labelMapSegmentationPanel,
+      cornerstone.contourSegmentationPanel,
       cornerstone.measurements,
       cornerstone.aiAssistantPanel,
       cornerstone.aiModelsPanel,

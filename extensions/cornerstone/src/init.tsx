@@ -13,6 +13,7 @@ import {
   getEnabledElement,
   Settings,
   utilities as csUtilities,
+  Enums as csEnums,
 } from '@cornerstonejs/core';
 import {
   cornerstoneStreamingImageVolumeLoader,
@@ -78,6 +79,7 @@ export default async function init({
     rendering: {
       ...cornerstone.getConfiguration().rendering,
       strictZSpacingForVolumeViewport: appConfig.strictZSpacingForVolumeViewport,
+      renderingEngineMode: csEnums.RenderingEngineModeEnum.Tiled,
     },
   });
 
