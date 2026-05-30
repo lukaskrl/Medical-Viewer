@@ -1,9 +1,14 @@
 /**
  * Lazy ONNX Runtime Web session factory.
  *
- * Forces WASM execution — WebGPU crashes the tab on this 3D nnU-Net with
- * dynamic spatial axes. Sessions are cached by URL so repeated model
- * invocations don't re-download / re-compile.
+ * Forces WASM execution. WebGPU is intentionally NOT used: ORT Web's WebGPU
+ * (JSEP) backend only implements 2-D convolutions, so this 3-D nnU-Net fails at
+ * the first ConvTranspose ("currently only support 2-dimensional conv"). WASM
+ * runs the full graph correctly; parallelism comes from running the whole
+ * inference in a Worker.
+ *
+ * Sessions are cached by URL so repeated model invocations don't re-download /
+ * re-compile.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -20,7 +25,7 @@ async function loadOrt(): Promise<OrtModule> {
     // loaded when the user actually runs a local inference.
     ortPromise = import('onnxruntime-web').then(mod => {
       const ort = mod as unknown as OrtModule;
-      // Point ORT at the /ort/ folder where rsbuild copies the .wasm files.
+      // Point ORT at the /ort/ folder where the build copies the .wasm files.
       // Required in worker contexts because import.meta-based resolution lands
       // next to the worker chunk, not next to the .wasm files.
       if (ort?.env?.wasm) {
@@ -33,11 +38,6 @@ async function loadOrt(): Promise<OrtModule> {
     });
   }
   return ortPromise;
-}
-
-export function isWebGpuAvailable(): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return typeof navigator !== 'undefined' && !!(navigator as any).gpu;
 }
 
 /**

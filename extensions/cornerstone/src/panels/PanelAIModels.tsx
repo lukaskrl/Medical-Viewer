@@ -12,7 +12,6 @@ import {
 } from '@ohif/extension-cornerstone-dicom-seg/src/utils/niftiWriter';
 import { extractDisplaySetVolume, type ImageVolume } from '../utils/extractDisplaySetVolume';
 import { LOCAL_MODELS, type LocalModel } from '../ai/registry';
-import { isWebGpuAvailable } from '../ai/ortSession';
 import { loadAiSegmentation } from '../ai/loadAiSegmentation';
 import * as inferenceProgress from '../ai/inferenceProgressStore';
 import { BAR_LAYOUT } from '../ai/inferenceProgressStore';
@@ -88,17 +87,10 @@ function writeRuntimePreference(runtime: Runtime): void {
 export default function PanelAIModels({ servicesManager, commandsManager }: PanelAIModelsProps) {
   const { viewportGridService, displaySetService, uiNotificationService } = servicesManager.services;
 
-  const webGpu = useMemo(() => isWebGpuAvailable(), []);
   const aiServiceUrl = useMemo(() => getConfiguredServiceUrl(), []);
   const aiModelsPath = useMemo(() => getModelsBasePath(), []);
 
-  const [runtime, setRuntime] = useState<Runtime>(() => {
-    const pref = readRuntimePreference();
-    if (pref === 'local' && !webGpu) {
-      return aiServiceUrl ? 'server' : 'local';
-    }
-    return pref;
-  });
+  const [runtime, setRuntime] = useState<Runtime>(() => readRuntimePreference());
   const [serverModels, setServerModels] = useState<ServerModel[]>([]);
   const [serverReachable, setServerReachable] = useState<boolean | null>(null);
   // Modality of the active viewport's series ('CT', 'MR', …). Drives which
@@ -473,7 +465,8 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
     [aiServiceUrl, getActiveContext, runLocal, runServer, runtime, uiNotificationService]
   );
 
-  const localDisabled = !webGpu;
+  // Local inference always runs on WASM, available in every browser.
+  const localDisabled = false;
   const serverDisabled = !aiServiceUrl || serverReachable === false;
 
   return (
@@ -575,7 +568,7 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-muted-foreground hover:bg-muted/80'
             } ${localDisabled ? 'cursor-not-allowed opacity-50' : ''}`}
-            title={localDisabled ? 'WebGPU not available in this browser' : 'Run on this computer'}
+            title="Run on this computer (WASM)"
           >
             On this computer
           </button>
@@ -601,9 +594,7 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
         </div>
         <p className="text-[10px] leading-snug text-muted-foreground">
           {runtime === 'local'
-            ? webGpu
-              ? 'Inference will run in your browser using WebGPU. No data leaves this machine.'
-              : 'WebGPU is not available — switch to On AI server, or use a Chromium/Edge browser.'
+            ? 'Inference runs in your browser on WASM. No data leaves this machine.'
             : aiServiceUrl
               ? `Uploads the active volume to ${aiServiceUrl}.`
               : 'Set aiServiceUrl in window.config to enable server inference.'}
