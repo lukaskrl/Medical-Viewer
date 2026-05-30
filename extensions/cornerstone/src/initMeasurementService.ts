@@ -287,7 +287,8 @@ const connectToolsToMeasurementService = ({
       // Passing true to indicate this is an update and NOT a annotation (start) completion.
       annotationToMeasurement(toolName, annotationModifiedEventDetail, true);
 
-      if (toolName === toolNames.Probe) {
+      const syncOnMoveTools = [toolNames.Probe, toolNames.ArrowAnnotate];
+      if (syncOnMoveTools.includes(toolName)) {
         const updatedMeasurement = measurementService.getMeasurement(annotationUID);
 
         if (updatedMeasurement) {

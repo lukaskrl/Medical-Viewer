@@ -321,10 +321,12 @@ function commandsModule({
       cornerstoneTools.annotation.selection.setAnnotationSelected(annotationUID, true);
       const { metadata } = measurement;
 
-      const isProbeMeasurement =
-        measurement?.toolName === toolNames.Probe || metadata?.toolName === toolNames.Probe;
+      const syncToolNames = [toolNames.Probe, toolNames.ArrowAnnotate];
+      const isSyncMeasurement =
+        syncToolNames.includes(measurement?.toolName) ||
+        syncToolNames.includes(metadata?.toolName);
 
-      if (isProbeMeasurement) {
+      if (isSyncMeasurement) {
         const matchingViewportIds = cornerstoneViewportService
           .getViewportIds()
           .filter(viewportId => viewportId !== excludeViewportId);

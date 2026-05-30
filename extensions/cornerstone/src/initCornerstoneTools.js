@@ -61,6 +61,14 @@ import {
 } from './utils/throttledPolySegSurface';
 
 const PROBE_TOOL_NAMES = new Set([ProbeTool.toolName, DragProbeTool.toolName]);
+// Tools that should be force-shown only on their closest slice plane in each
+// viewport (keyed off their first handle point). Probes are single-point; the
+// ArrowAnnotate is anchored to its arrowhead (points[0]) for cross-viewport sync.
+const NEAR_PLANE_VISIBLE_TOOL_NAMES = new Set([
+  ProbeTool.toolName,
+  DragProbeTool.toolName,
+  ArrowAnnotateTool.toolName,
+]);
 const CLOSEST_SLICE_EPSILON_MM = 1e-3;
 let isProbeNearPlanePatched = false;
 let isBrushRejectPreviewPatched = false;
@@ -125,7 +133,7 @@ function patchProbeNearPlaneVisibility() {
         continue;
       }
 
-      if (!PROBE_TOOL_NAMES.has(annotation?.metadata?.toolName)) {
+      if (!NEAR_PLANE_VISIBLE_TOOL_NAMES.has(annotation?.metadata?.toolName)) {
         continue;
       }
 

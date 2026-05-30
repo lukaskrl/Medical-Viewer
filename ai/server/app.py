@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import tempfile
 import traceback
 from typing import List
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -54,7 +55,11 @@ async def models() -> dict:
 
 
 @app.post("/predict/{model_id}")
-async def predict(model_id: str, file: UploadFile = File(...)):
+async def predict(
+    model_id: str,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+):
     try:
         model = get_model(model_id)
     except KeyError:
@@ -68,8 +73,8 @@ async def predict(model_id: str, file: UploadFile = File(...)):
             detail="file must be a NIfTI file with extension .nii or .nii.gz",
         )
 
-    # We persist the temp directory for the duration of the response so that
-    # FileResponse can stream the file before it is deleted.
+    # Patient-derived volumes pass through this directory; we must delete it
+    # once the response has streamed so PHI doesn't accumulate in /tmp.
     tmpdir = tempfile.mkdtemp(prefix=f"ai-{model_id}-")
     input_path = os.path.join(tmpdir, file.filename)
     output_path = os.path.join(
@@ -88,16 +93,22 @@ async def predict(model_id: str, file: UploadFile = File(...)):
         await asyncio.to_thread(model.run, input_path, output_path)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
+        shutil.rmtree(tmpdir, ignore_errors=True)
         return JSONResponse(
             status_code=500,
             content={"error": str(exc), "type": type(exc).__name__},
         )
+
+    # FileResponse streams output_path lazily, so rmtree must run *after* the
+    # response is sent — hence BackgroundTasks rather than a finally block.
+    background_tasks.add_task(shutil.rmtree, tmpdir, ignore_errors=True)
 
     download_name = os.path.basename(output_path)
     return FileResponse(
         output_path,
         media_type="application/gzip",
         filename=download_name,
+        background=background_tasks,
         # Surface label names via a header so the client doesn't need a 2nd request.
         headers={
             "X-Model-Id": model.id,
