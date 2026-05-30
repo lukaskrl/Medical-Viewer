@@ -101,6 +101,9 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
   });
   const [serverModels, setServerModels] = useState<ServerModel[]>([]);
   const [serverReachable, setServerReachable] = useState<boolean | null>(null);
+  // Modality of the active viewport's series ('CT', 'MR', …). Drives which
+  // vertebrae pipelines are offered. null when there's no active series.
+  const [activeModality, setActiveModality] = useState<string | null>(null);
 
   // Inference progress lives in a module-level store so it survives this panel
   // unmounting (e.g. user switches to another panel). The displayed bar value
@@ -195,6 +198,34 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
     };
   }, [aiServiceUrl]);
 
+  // Track the active series' modality so the panel can offer only the matching
+  // vertebrae pipeline (CT vs MRI). Recomputes when the active viewport or the
+  // available display sets change.
+  useEffect(() => {
+    const compute = () => {
+      try {
+        const { activeViewportId, viewports } = viewportGridService.getState();
+        const viewport = viewports.get(activeViewportId);
+        const uid = viewport?.displaySetInstanceUIDs?.[0];
+        const ds = uid ? displaySetService.getDisplaySetByUID(uid) : null;
+        setActiveModality((ds?.Modality as string) || null);
+      } catch {
+        setActiveModality(null);
+      }
+    };
+    compute();
+    const subs: Array<{ unsubscribe?: () => void }> = [];
+    const gridEvents = viewportGridService?.EVENTS || {};
+    [gridEvents.ACTIVE_VIEWPORT_ID_CHANGED, gridEvents.GRID_STATE_CHANGED]
+      .filter(Boolean)
+      .forEach(evt => subs.push(viewportGridService.subscribe(evt, compute)));
+    const dsEvents = displaySetService?.EVENTS || {};
+    [dsEvents.DISPLAY_SETS_ADDED, dsEvents.DISPLAY_SETS_CHANGED]
+      .filter(Boolean)
+      .forEach(evt => subs.push(displaySetService.subscribe(evt, compute)));
+    return () => subs.forEach(s => s?.unsubscribe?.());
+  }, [viewportGridService, displaySetService]);
+
   const persistRuntime = useCallback(
     (next: Runtime) => {
       setRuntime(next);
@@ -228,8 +259,16 @@ export default function PanelAIModels({ servicesManager, commandsManager }: Pane
         });
       }
     });
-    return Array.from(map.values());
-  }, [serverModels]);
+    const all = Array.from(map.values());
+    // When the active series is CT or MR, offer only the matching pipeline;
+    // for any other/absent modality, show everything. Fall back to all if the
+    // filter would hide every model (e.g. a server catalog with no match).
+    if (activeModality === 'CT' || activeModality === 'MR') {
+      const matched = all.filter(m => m.modality === activeModality);
+      return matched.length ? matched : all;
+    }
+    return all;
+  }, [serverModels, activeModality]);
 
   const getActiveContext = useCallback(() => {
     const { activeViewportId, viewports } = viewportGridService.getState();

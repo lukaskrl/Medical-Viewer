@@ -1,5 +1,5 @@
 import type { ImageVolume } from '../utils/extractDisplaySetVolume';
-import { VERTEBRAE_LABELS } from './models/vertebrae';
+import { CT_CONFIG, MRI_CONFIG } from './models/vertebrae';
 import { runInWorker } from './runInWorker';
 import type { AIProgressEvent } from './progress';
 
@@ -26,17 +26,32 @@ export interface LocalModel {
 }
 
 export const LOCAL_MODELS: Record<string, LocalModel> = {
-  vertebrae: {
-    id: 'vertebrae',
-    name: 'Vertebrae detection',
+  vertebrae_ct: {
+    id: 'vertebrae_ct',
+    name: 'Vertebrae (CT)',
     description:
-      'nnU-Net (TotalSegmentator Task252). 24 vertebra labels L5 → C1. Browser inference uses WebGPU when available.',
+      'nnU-Net v2 (TotalSegmentator). 26 labels incl. sacrum + S1, L5 → C1. Expects a CT series.',
     modality: 'CT',
-    onnxFile: 'vertebrae.onnx',
-    labelNames: VERTEBRAE_LABELS,
+    onnxFile: 'vertebrae_ct.onnx',
+    labelNames: CT_CONFIG.labels,
     run: (volume, opts) =>
       runInWorker(volume, {
-        modelId: 'vertebrae',
+        modelId: 'vertebrae_ct',
+        onnxUrl: opts.onnxUrl,
+        onProgress: opts.onProgress,
+      }),
+  },
+  vertebrae_mri: {
+    id: 'vertebrae_mri',
+    name: 'Vertebrae (MRI)',
+    description:
+      'nnU-Net v2 (TotalSegmentator MRI). 25 labels incl. sacrum, L5 → C1. Expects an MR series.',
+    modality: 'MR',
+    onnxFile: 'vertebrae_mri.onnx',
+    labelNames: MRI_CONFIG.labels,
+    run: (volume, opts) =>
+      runInWorker(volume, {
+        modelId: 'vertebrae_mri',
         onnxUrl: opts.onnxUrl,
         onProgress: opts.onProgress,
       }),

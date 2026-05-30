@@ -76,14 +76,23 @@ export async function extractDisplaySetVolume(
 
   const depth = imageIds.length;
 
-  // Load slice 0 first so we have geometry + dimensions for the output array.
-  const firstImage = (await imageLoader.loadAndCacheImage(imageIds[0])) as {
+  // Cornerstone image objects may already have the modality LUT (rescale
+  // slope/intercept) baked into the pixel data — `getPixelData()` then returns
+  // HU directly. We must not re-apply the rescale in that case, or CT values
+  // end up shifted by the intercept (typically −1024), which makes downstream
+  // HU-window normalization see an all-air volume.
+  interface CsImage {
     width?: number;
     columns?: number;
     height?: number;
     rows?: number;
+    isPreScaled?: boolean;
+    preScale?: { enabled?: boolean; scaled?: boolean };
     getPixelData: () => ArrayLike<number>;
-  };
+  }
+
+  // Load slice 0 first so we have geometry + dimensions for the output array.
+  const firstImage = (await imageLoader.loadAndCacheImage(imageIds[0])) as CsImage;
 
   const width = firstImage.columns ?? firstImage.width;
   const height = firstImage.rows ?? firstImage.height;
@@ -156,25 +165,36 @@ export async function extractDisplaySetVolume(
     }
   };
 
-  // Read the rescale params for slice 0 and reuse if they don't vary per slice.
-  const readRescale = (imageId: string): { slope: number; intercept: number } => {
+  // Determine the rescale to apply for a slice. If the image's pixel data was
+  // already pre-scaled by cornerstone, getPixelData() is in HU and we apply the
+  // identity transform; otherwise we apply the modality LUT (slope * raw +
+  // intercept).
+  const effectiveRescale = (
+    image: CsImage,
+    imageId: string
+  ): { slope: number; intercept: number } => {
+    if (image.isPreScaled === true || image.preScale?.scaled === true) {
+      return { slope: 1, intercept: 0 };
+    }
     const mod = metaData.get('modalityLutModule', imageId) || {};
     const slope = typeof mod.rescaleSlope === 'number' ? mod.rescaleSlope : 1;
     const intercept = typeof mod.rescaleIntercept === 'number' ? mod.rescaleIntercept : 0;
     return { slope, intercept };
   };
 
-  const first = readRescale(imageIds[0]);
+  const first = effectiveRescale(firstImage, imageIds[0]);
+  console.log(
+    `[AI/extract] preScaled=${firstImage.isPreScaled === true || firstImage.preScale?.scaled === true} ` +
+      `→ applying slope=${first.slope} intercept=${first.intercept} (identity means data already in HU)`
+  );
   copySlice(firstImage.getPixelData(), 0, first.slope, first.intercept);
   onProgress?.(1, depth);
 
   for (let i = 1; i < depth; i++) {
     const imageId = imageIds[i];
     const cached = cache.getImage(imageId);
-    const image = (cached ?? (await imageLoader.loadAndCacheImage(imageId))) as {
-      getPixelData: () => ArrayLike<number>;
-    };
-    const { slope, intercept } = readRescale(imageId);
+    const image = (cached ?? (await imageLoader.loadAndCacheImage(imageId))) as CsImage;
+    const { slope, intercept } = effectiveRescale(image, imageId);
     copySlice(image.getPixelData(), i, slope, intercept);
     onProgress?.(i + 1, depth);
   }

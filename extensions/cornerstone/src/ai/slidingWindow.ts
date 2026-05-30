@@ -151,6 +151,14 @@ export async function runSlidingWindow(
   const total = startsD.length * startsH.length * startsW.length;
   const gaussian = buildGaussianMap(opts.patchSize);
 
+  const SW_LOG = '[AI/slidingWindow]';
+  console.log(
+    `${SW_LOG} volume(z,y,x)=${D}×${H}×${W} patch=${pd}×${ph}×${pw} ` +
+      `padded=${PD}×${PH}×${PW} padMin=${padMin.toFixed(3)} ` +
+      `patches=${total} (${startsD.length}×${startsH.length}×${startsW.length}) ` +
+      `numClasses=${numClasses}`
+  );
+
   // Streaming argmax: per-voxel best label + the weighted max probability that
   // selected it. No per-class buffer over the padded volume.
   const aggregatedLabel = new Uint8Array(PD * PH * PW);
@@ -186,6 +194,7 @@ export async function runSlidingWindow(
 
         // Compute per-voxel argmax + softmax-max in one pass without
         // materializing a full probability tensor.
+        let patchFg = 0; // voxels whose argmax is a foreground class (debug)
         for (let v = 0; v < patchVoxels; v++) {
           let maxLogit = -Infinity;
           let bestClass = 0;
@@ -204,6 +213,28 @@ export async function runSlidingWindow(
           }
           patchArgmax[v] = bestClass;
           patchMaxProb[v] = 1 / denom;
+          if (bestClass !== 0) patchFg++;
+        }
+        // Log the raw model output for the first patch (and any patch with
+        // foreground) so we can tell whether the ONNX itself sees anything.
+        if (patchIndex === 0 || patchFg > 0) {
+          let lmin = Infinity;
+          let lmax = -Infinity;
+          let lnan = 0;
+          for (let i = 0; i < logits.length; i++) {
+            const x = logits[i];
+            if (Number.isNaN(x)) {
+              lnan++;
+              continue;
+            }
+            if (x < lmin) lmin = x;
+            if (x > lmax) lmax = x;
+          }
+          console.log(
+            `${SW_LOG} patch ${patchIndex} @[${sd},${sh},${sw}] ` +
+              `logits[n=${logits.length} min=${lmin.toFixed(3)} max=${lmax.toFixed(3)} NaN=${lnan}] ` +
+              `argmax-foreground voxels=${patchFg}/${patchVoxels}`
+          );
         }
 
         // Streaming aggregation: per output voxel, keep the (label, weighted

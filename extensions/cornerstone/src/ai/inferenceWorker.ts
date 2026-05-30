@@ -1,7 +1,12 @@
 /// <reference lib="webworker" />
 
 import type { ImageVolume } from '../utils/extractDisplaySetVolume';
-import { runVertebraeInference } from './models/vertebrae';
+import {
+  runVertebraeInference,
+  CT_CONFIG,
+  MRI_CONFIG,
+  type VertebraeModelConfig,
+} from './models/vertebrae';
 import type { AIProgressEvent } from './progress';
 
 export type WorkerRunMessage = {
@@ -44,18 +49,25 @@ scope.addEventListener('message', async (event: MessageEvent<WorkerRunMessage>) 
   }
   const { modelId, onnxUrl, volume } = msg;
   try {
-    let result;
-    if (modelId === 'vertebrae') {
-      result = await runVertebraeInference(volume, {
+    const configByModelId: Record<string, VertebraeModelConfig> = {
+      vertebrae_ct: CT_CONFIG,
+      vertebrae_mri: MRI_CONFIG,
+    };
+    const config = configByModelId[modelId];
+    if (!config) {
+      throw new Error(`Unknown model id in worker: ${modelId}`);
+    }
+    const result = await runVertebraeInference(
+      volume,
+      {
         onnxUrl,
         onProgress: event => {
           const progressMsg: WorkerProgressMessage = { type: 'progress', event };
           scope.postMessage(progressMsg);
         },
-      });
-    } else {
-      throw new Error(`Unknown model id in worker: ${modelId}`);
-    }
+      },
+      config
+    );
     const resultMsg: WorkerResultMessage = {
       type: 'result',
       data: result.data,

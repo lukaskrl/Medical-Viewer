@@ -267,3 +267,27 @@ export function clipAndZScore(
   }
   return data;
 }
+
+/**
+ * Per-image z-score normalization (nnU-Net `ZScoreNormalization`, used for the
+ * MRI model where `use_mask_for_norm` is false). Computes mean/std over the
+ * whole volume and applies `(v - mean) / max(std, 1e-8)` in place.
+ */
+export function zScorePerImage(data: Float32Array): Float32Array {
+  const n = data.length;
+  if (n === 0) return data;
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += data[i];
+  const mean = sum / n;
+  let sq = 0;
+  for (let i = 0; i < n; i++) {
+    const d = data[i] - mean;
+    sq += d * d;
+  }
+  const std = Math.sqrt(sq / n);
+  const denom = std > 1e-8 ? std : 1e-8;
+  for (let i = 0; i < n; i++) {
+    data[i] = (data[i] - mean) / denom;
+  }
+  return data;
+}
