@@ -8,6 +8,7 @@ import {
   Types as CoreTypes,
   BaseVolumeViewport,
   getRenderingEngines,
+  CONSTANTS as CoreConstants,
 } from '@cornerstonejs/core';
 import {
   ToolGroupManager,
@@ -56,6 +57,7 @@ import { isMeasurementWithinViewport } from './utils/isMeasurementWithinViewport
 import { getCenterExtent } from './utils/getCenterExtent';
 import { EasingFunctionEnum } from './utils/transitions';
 import { createSegmentationForViewport } from './utils/createSegmentationForViewport';
+import getCornerstoneBlendMode from './utils/getCornerstoneBlendMode';
 import { utilities as segmentationUtilities } from '@cornerstonejs/tools/segmentation';
 import i18n from '@ohif/i18n';
 
@@ -1804,6 +1806,33 @@ function commandsModule({
         ins?.computeToolCenter();
       });
     },
+    setCrosshairsSlabBlendMode: ({ blendMode }: { blendMode: 'mip' | 'minip' | 'avg' }) => {
+      const blendModeEnum = getCornerstoneBlendMode(blendMode);
+      const toolGroup = toolGroupService.getToolGroup('mpr');
+      if (!toolGroup?.hasTool('Crosshairs')) {
+        return;
+      }
+
+      toolGroup.setToolConfiguration(
+        'Crosshairs',
+        { slabThicknessBlendMode: blendModeEnum },
+        false // merge
+      );
+
+      const minSlab = CoreConstants.RENDERING_DEFAULTS.MINIMUM_SLAB_THICKNESS;
+      toolGroup.getViewportIds().forEach(viewportId => {
+        const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+        if (!viewport || typeof (viewport as any).setBlendMode !== 'function') {
+          return;
+        }
+        const currentSlab = (viewport as any).getSlabThickness?.();
+        if (typeof currentSlab === 'number' && currentSlab > minSlab) {
+          (viewport as any).setBlendMode(blendModeEnum, undefined, true);
+        }
+      });
+
+      cornerstoneViewportService.getRenderingEngine()?.render();
+    },
     /**
      * Creates a labelmap for the active viewport
      *
@@ -2904,6 +2933,9 @@ function commandsModule({
     },
     resetCrosshairs: {
       commandFn: actions.resetCrosshairs,
+    },
+    setCrosshairsSlabBlendMode: {
+      commandFn: actions.setCrosshairsSlabBlendMode,
     },
     toggleSynchronizer: {
       commandFn: actions.toggleSynchronizer,

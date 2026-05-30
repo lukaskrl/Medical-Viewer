@@ -4,6 +4,7 @@ import { utils } from '@ohif/ui-next';
 import { ViewportDataOverlayMenuWrapper } from './components/ViewportDataOverlaySettingMenu/ViewportDataOverlayMenuWrapper';
 import { ViewportOrientationMenuWrapper } from './components/ViewportOrientationMenu/ViewportOrientationMenuWrapper';
 import { WindowLevelActionMenuWrapper } from './components/WindowLevelActionMenu/WindowLevelActionMenuWrapper';
+import { CrosshairsBlendModeMenuWrapper } from './components/CrosshairsBlendModeMenu/CrosshairsBlendModeMenuWrapper';
 import { VOIManualControlMenuWrapper } from './components/VOIManualControlMenu';
 import { ThresholdMenuWrapper } from './components/ThresholdMenu/ThresholdMenuWrapper';
 import { OpacityMenuWrapper } from './components/OpacityMenu/OpacityMenuWrapper';
@@ -228,6 +229,10 @@ export default function getToolbarModule({ servicesManager, extensionManager }: 
     {
       name: 'ohif.windowLevelMenu',
       defaultComponent: WindowLevelActionMenuWrapper,
+    },
+    {
+      name: 'ohif.crosshairsBlendModeMenu',
+      defaultComponent: CrosshairsBlendModeMenuWrapper,
     },
     {
       name: 'ohif.voiManualControlMenu',

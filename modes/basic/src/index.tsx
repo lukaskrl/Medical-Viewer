@@ -299,7 +299,7 @@ export const toolbarSections = {
     'WindowLevel',
     'Capture',
     'Layout',
-    'Crosshairs',
+    'CrosshairsWithBlend',
     'MoreTools',
   ],
 
@@ -334,6 +334,8 @@ export const toolbarSections = {
     'SplineROI',
     'LivewireContour',
   ],
+
+  CrosshairsWithBlend: ['Crosshairs'],
 
   MoreTools: [
     'Reset',

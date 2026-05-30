@@ -1129,6 +1129,11 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
         }
       });
     }
+
+    if (viewport.type === csEnums.ViewportType.VOLUME_3D) {
+      this._applyVolume3DInteractivePerformance(viewport);
+    }
+
     viewport.render();
 
     volumesProperties.forEach(({ properties, volumeId, displaySetInstanceUID }) => {
@@ -1171,6 +1176,74 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     this._broadcastEvent(this.EVENTS.VIEWPORT_VOLUMES_CHANGED, {
       viewportInfo,
     });
+  }
+
+  private _applyVolume3DInteractivePerformance(viewport: Types.IVolumeViewport) {
+    // Static: full-quality along-ray sampling, 1 ray per screen pixel.
+    // Interactive: same along-ray quality, but ~1 ray per 4x4 pixel block (16x fewer rays).
+    // This mirrors what desktop VTK / 3D Slicer does during drag.
+    const STATIC_QUALITY = 0.5;
+    const STATIC_IMAGE_SAMPLE_DISTANCE = 1.0;
+    const INTERACTIVE_IMAGE_SAMPLE_DISTANCE = 4.0;
+    const INTERACTIVE_QUALITY = 0.3;
+    const IDLE_RESTORE_MS = 250;
+
+    type VolumeMapper = {
+      setSampleDistance: (v: number) => void;
+      setMaximumSamplesPerRay: (v: number) => void;
+      setImageSampleDistance?: (v: number) => void;
+      getInputData: () => { getDimensions(): number[]; getSpacing(): number[] };
+    };
+
+    const mappers = viewport
+      .getActors()
+      .map(entry => entry.actor?.getMapper?.() as VolumeMapper | undefined)
+      .filter((m): m is VolumeMapper => !!m?.getInputData);
+
+    if (!mappers.length) {
+      return;
+    }
+
+    const applyQuality = (quality: number, imageSampleDistance: number) => {
+      mappers.forEach(mapper => {
+        const image = mapper.getInputData();
+        const dims = image.getDimensions();
+        const spacing = image.getSpacing();
+        const avgSpacing = (spacing[0] + spacing[1] + spacing[2]) / 3.0;
+        const sampleDistance = avgSpacing / quality;
+        const spatialDiagonal = Math.sqrt(
+          (dims[0] * spacing[0]) ** 2 +
+            (dims[1] * spacing[1]) ** 2 +
+            (dims[2] * spacing[2]) ** 2
+        );
+        mapper.setSampleDistance(sampleDistance);
+        mapper.setMaximumSamplesPerRay(spatialDiagonal / sampleDistance + 1);
+        mapper.setImageSampleDistance?.(imageSampleDistance);
+      });
+    };
+
+    applyQuality(STATIC_QUALITY, STATIC_IMAGE_SAMPLE_DISTANCE);
+
+    let interacting = false;
+    let restoreTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const onCameraModified = () => {
+      if (!interacting) {
+        interacting = true;
+        applyQuality(INTERACTIVE_QUALITY, INTERACTIVE_IMAGE_SAMPLE_DISTANCE);
+      }
+      if (restoreTimer) {
+        clearTimeout(restoreTimer);
+      }
+      restoreTimer = setTimeout(() => {
+        interacting = false;
+        restoreTimer = null;
+        applyQuality(STATIC_QUALITY, STATIC_IMAGE_SAMPLE_DISTANCE);
+        viewport.render();
+      }, IDLE_RESTORE_MS);
+    };
+
+    viewport.element.addEventListener(csEnums.Events.CAMERA_MODIFIED, onCameraModified);
   }
 
   private _processExtraDisplaySetsForViewport(

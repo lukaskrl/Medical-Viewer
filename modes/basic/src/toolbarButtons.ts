@@ -660,6 +660,13 @@ const toolbarButtons: Button[] = [
     },
   },
   {
+    id: 'CrosshairsWithBlend',
+    uiType: 'ohif.crosshairsBlendModeMenu',
+    props: {
+      buttonSection: true,
+    },
+  },
+  {
     id: 'SegmentLabelTool',
     uiType: 'ohif.toolBoxButton',
     props: {
