@@ -12,6 +12,7 @@ import {
   extensionDependencies as basicDependencies,
   mode as basicMode,
   modeInstance as basicModeInstance,
+  onModeEnter as basicOnModeEnter,
 } from '@ohif/mode-basic';
 
 export const tracked = {
@@ -59,6 +60,35 @@ export const longitudinalRoute = {
   layoutInstance: longitudinalInstance,
 };
 
+/**
+ * Runs the shared basic-mode setup, then registers an activate-panel trigger
+ * for THIS mode's measurements panel. Basic mode wires the trigger to the
+ * cornerstone measurements panel, but the longitudinal layout swaps in the
+ * tracked-measurements panel, so a new measurement must switch to that tab.
+ */
+function onModeEnter(props: withAppTypes) {
+  basicOnModeEnter.call(this, props);
+
+  const { servicesManager } = props;
+  const { panelService, measurementService } = servicesManager.services;
+
+  this._activatePanelTriggersSubscriptions.push(
+    ...panelService.addActivatePanelTriggers(
+      tracked.measurements,
+      [
+        {
+          sourcePubSubService: measurementService,
+          sourceEvents: [
+            measurementService.EVENTS.MEASUREMENT_ADDED,
+            measurementService.EVENTS.RAW_MEASUREMENT_ADDED,
+          ],
+        },
+      ],
+      true
+    )
+  );
+}
+
 export const modeInstance = {
   ...basicModeInstance,
   // TODO: We're using this as a route segment
@@ -68,6 +98,7 @@ export const modeInstance = {
   displayName: i18n.t('Modes:Basic Viewer'),
   routes: [longitudinalRoute],
   extensions: extensionDependencies,
+  onModeEnter,
 };
 
 const mode = {

@@ -92,7 +92,9 @@ const SidePanelWithServices = ({
         if (sidePanelExpanded || activatePanelEvent.forceActive) {
           const tabIndex = tabs.findIndex(tab => tab.id === activatePanelEvent.panelId);
           if (tabIndex !== -1) {
-            if (!closedManually) {
+            // forceActive overrides a previous manual close so the panel
+            // (e.g. measurements) reopens whenever a new annotation is added.
+            if (!closedManually || activatePanelEvent.forceActive) {
               setSidePanelExpanded(true);
             }
             setActiveTabIndex(tabIndex);
