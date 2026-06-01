@@ -73,6 +73,7 @@ const CLOSEST_SLICE_EPSILON_MM = 1e-3;
 let isProbeNearPlanePatched = false;
 let isBrushRejectPreviewPatched = false;
 let isLabelmapRepresentationVisibilityPatched = false;
+let isWindowLevelMultiplierPatched = false;
 
 function patchProbeNearPlaneVisibility() {
   if (isProbeNearPlanePatched) {
@@ -261,10 +262,61 @@ function patchLabelmapRespectRepresentationVisibility() {
   isLabelmapRepresentationVisibilityPatched = true;
 }
 
+/**
+ * Memoizes WindowLevelTool's dynamic-range multiplier so window/level dragging
+ * stays smooth on volumetric scans.
+ *
+ * `mouseDragCallback` calls `_getMultiplierFromDynamicRange(viewport, volumeId)`
+ * on every pointer move to derive the drag sensitivity. For volume viewports
+ * (MPR and stack-of-volume) that re-derives the image dynamic range each time
+ * via `voxelManager.getMiddleSliceData()`, which allocates a fresh full slice
+ * and reads every voxel, followed by a `reduce()` that allocates a `[min, max]`
+ * pair per voxel. On a large volume that is hundreds of thousands of ops plus
+ * allocations per event, all on the main thread — so W/L dragging visibly lags
+ * while small/2D images stay fine. (Stack-image viewports use the cheap cached
+ * `getRange()` path; this patch leaves their behavior effectively unchanged.)
+ *
+ * The dynamic range is constant for a given volume (and for a given stack
+ * image), so cache the multiplier by volumeId / current imageId. The scan then
+ * runs once per volume instead of once per frame; drag sensitivity is identical.
+ */
+function patchWindowLevelDynamicRangeCache() {
+  if (isWindowLevelMultiplierPatched) {
+    return;
+  }
+
+  const proto = WindowLevelTool.prototype;
+  const original = proto._getMultiplierFromDynamicRange;
+  if (typeof original !== 'function') {
+    return;
+  }
+
+  const multiplierCache = new Map();
+
+  proto._getMultiplierFromDynamicRange = function patchedGetMultiplier(viewport, volumeId) {
+    const key = volumeId || viewport?.getCurrentImageId?.();
+
+    if (key && multiplierCache.has(key)) {
+      return multiplierCache.get(key);
+    }
+
+    const multiplier = original.call(this, viewport, volumeId);
+
+    if (key) {
+      multiplierCache.set(key, multiplier);
+    }
+
+    return multiplier;
+  };
+
+  isWindowLevelMultiplierPatched = true;
+}
+
 export default function initCornerstoneTools() {
   patchProbeNearPlaneVisibility();
   patchBrushRejectPreviewWhenDisabled();
   patchLabelmapRespectRepresentationVisibility();
+  patchWindowLevelDynamicRangeCache();
 
   CrosshairsTool.isAnnotation = false;
   LabelmapSlicePropagationTool.isAnnotation = false;
