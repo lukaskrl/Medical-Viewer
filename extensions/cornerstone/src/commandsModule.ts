@@ -55,6 +55,7 @@ import { getUpdatedViewportsForSegmentation } from './utils/hydrationUtils';
 import { SegmentationRepresentations } from '@cornerstonejs/tools/enums';
 import { isMeasurementWithinViewport } from './utils/isMeasurementWithinViewport';
 import { getCenterExtent } from './utils/getCenterExtent';
+import { getMeasurementWorldPoint } from './utils/getMeasurementWorldPoint';
 import { EasingFunctionEnum } from './utils/transitions';
 import { createSegmentationForViewport } from './utils/createSegmentationForViewport';
 import getCornerstoneBlendMode from './utils/getCornerstoneBlendMode';
@@ -207,26 +208,6 @@ function commandsModule({
         );
       }
     };
-  };
-
-  const getMeasurementWorldPoint = measurement => {
-    const pointMeasurementPoint = measurement?.points?.[0];
-    if (pointMeasurementPoint?.length === 3) {
-      return pointMeasurementPoint;
-    }
-
-    const handlePoint = measurement?.data?.handles?.points?.[0];
-    if (handlePoint?.length === 3) {
-      return handlePoint;
-    }
-
-    const metadataPoint = measurement?.metadata?.planeRestriction?.point;
-    if (metadataPoint?.length === 3) {
-      return metadataPoint;
-    }
-
-    const { center } = getCenterExtent(measurement);
-    return center;
   };
 
   const jumpToClosestSliceOnCurrentOrientation = (viewport, worldPoint) => {
@@ -2393,6 +2374,12 @@ function commandsModule({
       segmentationService.addSegment(activeSegmentation.segmentationId);
     },
     loadSegmentationDisplaySetsForViewport: ({ viewportId, displaySetInstanceUIDs }) => {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[SEG-LOAD] ${performance.now().toFixed(0)} loadSegmentationDisplaySetsForViewport: viewportId=${viewportId} displaySets=`,
+        displaySetInstanceUIDs,
+        '\n— caller stack:\n' + (new Error().stack?.split('\n').slice(2, 9).join('\n') ?? '(no stack)')
+      );
       const updatedViewports = getUpdatedViewportsForSegmentation({
         viewportId,
         servicesManager,

@@ -17,7 +17,7 @@ export function setupSegmentationDataModifiedHandler({
   let isUnsubscribed = false;
   const { unsubscribe: debouncedUnsubscribe } = segmentationService.subscribeDebounced(
     segmentationService.EVENTS.SEGMENTATION_DATA_MODIFIED,
-    async ({ segmentationId }) => {
+    async ({ segmentationId, modifiedSlicesToUse, segmentIndex: modifiedSegmentIndex }) => {
       const disableUpdateSegmentationStats = customizationService.getCustomization(
         'panelSegmentation.disableUpdateSegmentationStats'
       );
@@ -28,13 +28,39 @@ export function setupSegmentationDataModifiedHandler({
         return;
       }
 
-      const readableText = customizationService.getCustomization('panelSegmentation.readableText');
-
-      // Check for segments with bidirectional measurements and update them
       const segmentIndices = Object.keys(segmentation.segments)
         .map(index => parseInt(index))
         .filter(index => index > 0);
 
+      // Skip the expensive whole-volume stats recompute when nothing actually
+      // changed. Cornerstone emits SEGMENTATION_DATA_MODIFIED with only a
+      // segmentationId every time a representation is added to a viewport (e.g.
+      // on a single->MPR layout switch, once per new viewport). Treating those
+      // as data changes used to trigger a getStatistics pass (iterates every
+      // voxel) plus an addOrUpdateSegmentation re-broadcast per viewport,
+      // snowballing into many redundant segmentation re-renders.
+      //
+      // We must still compute on (a) real voxel edits - brush/threshold/paint
+      // fill carry modifiedSlicesToUse and/or a segmentIndex - and (b) initial
+      // load, where stats don't exist yet and this handler is what populates
+      // them. So only bail out when stats already exist AND this isn't an edit.
+      const hasModifiedSlices = Array.isArray(modifiedSlicesToUse)
+        ? modifiedSlicesToUse.length > 0
+        : modifiedSlicesToUse !== undefined;
+      const isRealVoxelEdit = hasModifiedSlices || modifiedSegmentIndex !== undefined;
+      const allSegmentsHaveStats =
+        segmentIndices.length > 0 &&
+        segmentIndices.every(index => {
+          const namedStats = segmentation.segments[index]?.cachedStats?.namedStats;
+          return namedStats && Object.keys(namedStats).length > 0;
+        });
+      if (allSegmentsHaveStats && !isRealVoxelEdit) {
+        return;
+      }
+
+      const readableText = customizationService.getCustomization('panelSegmentation.readableText');
+
+      // Check for segments with bidirectional measurements and update them
       for (const segmentIndex of segmentIndices) {
         const segment = segmentation.segments[segmentIndex];
         if (segment?.cachedStats?.namedStats?.bidirectional) {
@@ -138,9 +164,11 @@ export function setUpSelectedSegmentationsForViewportHandler({ segmentationServi
 
         const activeRepresentation = representations.find(representation => representation.active);
 
-        const typeToSegmentationIdMap =
-          selectedSegmentationsForViewport[viewportId] ??
-          new Map<SegmentationRepresentations, string>();
+        // Build a new Map (rather than mutating in place) so the store update
+        // produces a fresh reference and reliably re-renders subscribers.
+        const typeToSegmentationIdMap = new Map<SegmentationRepresentations, string>(
+          selectedSegmentationsForViewport[viewportId] ?? []
+        );
 
         if (activeRepresentation) {
           typeToSegmentationIdMap.set(
@@ -149,6 +177,20 @@ export function setUpSelectedSegmentationsForViewportHandler({ segmentationServi
           );
         } else {
           typeToSegmentationIdMap.clear();
+        }
+
+        // Drop entries for representation types that no longer have any
+        // representation on this viewport. Without this, a stale entry persists
+        // (e.g. a LABELMAP entry left over when a viewport becomes a 3D/SURFACE-only
+        // render). The segmentation panel reads the first matching type from this
+        // map to drive the selector's controlled value, so a stale entry pins the
+        // dropdown to a segmentation that isn't actually on the viewport and makes
+        // switching appear broken.
+        const presentTypes = new Set(representations.map(representation => representation.type));
+        for (const type of Array.from(typeToSegmentationIdMap.keys())) {
+          if (!presentTypes.has(type)) {
+            typeToSegmentationIdMap.delete(type);
+          }
         }
 
         setSelectedSegmentationsForViewport(viewportId, typeToSegmentationIdMap);

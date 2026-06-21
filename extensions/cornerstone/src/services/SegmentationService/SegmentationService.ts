@@ -106,6 +106,16 @@ class SegmentationService extends PubSubService {
   private _segmentationIdToColorLUTIndexMap: Map<string, number>;
   private _segmentationGroupStatsMap: Map<string, any>;
   private _segmentOpacityMap: Map<string, Map<number, number>>;
+  // Tracks in-flight stack->volume labelmap conversions keyed by segmentationId.
+  // On a layout switch every viewport calls addSegmentationRepresentation
+  // concurrently; without this guard each call rebuilds the whole labelmap
+  // volume (a fresh uuid volumeId defeats the volume cache), so N viewports
+  // build N duplicate volumes instead of sharing one.
+  private _stackToVolumeLabelmapConversions: Map<string, Promise<void>>;
+  // Collapses the duplicate concurrent addSegmentationRepresentation calls that
+  // both trigger paths produce per viewport on a layout switch. Keyed by
+  // `${viewportId}::${segmentationId}::${requestedType}`.
+  private _addRepresentationInFlight: Map<string, Promise<void>>;
   readonly servicesManager: AppTypes.ServicesManager;
   highlightIntervalId = null;
   readonly EVENTS = EVENTS;
@@ -120,6 +130,10 @@ class SegmentationService extends PubSubService {
     this._segmentationGroupStatsMap = new Map();
 
     this._segmentOpacityMap = new Map();
+
+    this._stackToVolumeLabelmapConversions = new Map();
+
+    this._addRepresentationInFlight = new Map();
   }
 
   public onModeEnter(): void {
@@ -284,6 +298,48 @@ class SegmentationService extends PubSubService {
 
   public async addSegmentationRepresentation(
     viewportId: string,
+    options: {
+      segmentationId: string;
+      predecessorImageId?: string;
+      type?: csToolsEnums.SegmentationRepresentations;
+      config?: {
+        blendMode?: csEnums.BlendModes;
+      };
+      suppressEvents?: boolean;
+    }
+  ): Promise<void> {
+    // On a layout switch BOTH trigger paths fire for the same viewport+
+    // segmentation concurrently (overlay-displayset processing in
+    // setVolumesForViewport AND segmentation-presentation restore in
+    // setPresentations). Without this guard each one runs the full async
+    // pipeline before the other reaches the "already exists" early-return,
+    // doubling the event/render churn during the most jank-sensitive moment.
+    // Share a single in-flight promise per viewport+segmentation+requested type
+    // so the duplicate call collapses into the first.
+    const { segmentationId, type } = options;
+    const inFlightKey = `${viewportId}::${segmentationId}::${type ?? 'default'}`;
+    const existing = this._addRepresentationInFlight.get(inFlightKey);
+    if (existing) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[SEG-LOAD] ${performance.now().toFixed(0)} addSegmentationRepresentation: DEDUP hit (already in flight) key=${inFlightKey}`
+      );
+      return existing;
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[SEG-LOAD] ${performance.now().toFixed(0)} addSegmentationRepresentation: START key=${inFlightKey}`
+    );
+    const op = this._performAddSegmentationRepresentation(viewportId, options).finally(() => {
+      this._addRepresentationInFlight.delete(inFlightKey);
+    });
+    this._addRepresentationInFlight.set(inFlightKey, op);
+    return op;
+  }
+
+  private async _performAddSegmentationRepresentation(
+    viewportId: string,
     {
       segmentationId,
       predecessorImageId,
@@ -333,6 +389,24 @@ class SegmentationService extends PubSubService {
         segmentationId,
         representationTypeToUse
       ));
+    }
+
+    // Surfaces are computed from the labelmap and throttledComputeSurfaceData
+    // only supports volume-backed labelmaps. When a 3D viewport receives the
+    // segmentation before any volume viewport has converted it (e.g. opening 3D
+    // first, then loading the segmentation), the labelmap is still a stack
+    // labelmap and the surface build throws. Ensure conversion here, covering
+    // both the SURFACE type explicitly requested (presentation restore) and the
+    // SURFACE derived from a LABELMAP request on a 3D viewport.
+    if (
+      representationTypeToUse === SURFACE &&
+      csViewport.type === ViewportType.VOLUME_3D &&
+      segmentation
+    ) {
+      const labelmapData = segmentation.representationData?.[LABELMAP];
+      if (labelmapData && !('volumeId' in labelmapData)) {
+        await this._ensureVolumeLabelmap(segmentation);
+      }
     }
 
     await this._addSegmentationRepresentation(
@@ -1895,6 +1969,10 @@ class SegmentationService extends PubSubService {
     }
 
     const addRepresentation = () => {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[SEG-LOAD] ${performance.now().toFixed(0)} _addSegmentationRepresentation: cstSegmentation.addSegmentationRepresentations viewport=${viewportId} type=${representationType} (triggers a seg render on this viewport)`
+      );
       cstSegmentation.addSegmentationRepresentations(viewportId, [representation]);
     };
 
@@ -1928,8 +2006,52 @@ class SegmentationService extends PubSubService {
     const segImage = cache.getImage(imageIds[0]);
 
     if (segImage?.FrameOfReferenceUID === frameOfReferenceUID) {
-      await convertStackToVolumeLabelmap(segmentation);
+      await this._ensureVolumeLabelmap(segmentation);
     }
+  }
+
+  /**
+   * Converts a stack labelmap into a volume labelmap exactly once per
+   * segmentation, even when many viewports request it concurrently.
+   *
+   * `convertStackToVolumeLabelmap` allocates a brand-new volume (random
+   * volumeId) every call, so without deduplication a single layout switch
+   * (e.g. single -> MPR) rebuilds the same labelmap volume once per viewport.
+   * Here we (1) short-circuit if the segmentation is already a volume labelmap
+   * and (2) share a single in-flight conversion promise across concurrent
+   * callers so the heavy volume build runs once and every viewport reuses it.
+   */
+  private async _ensureVolumeLabelmap(segmentation: SegmentationData): Promise<void> {
+    const { segmentationId } = segmentation;
+
+    // Already a volume labelmap (possibly converted by a caller that finished
+    // first) — nothing to do.
+    if ('volumeId' in segmentation.representationData[LABELMAP]) {
+      return;
+    }
+
+    const existing = this._stackToVolumeLabelmapConversions.get(segmentationId);
+    if (existing) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[SEG-LOAD] ${performance.now().toFixed(0)} _ensureVolumeLabelmap: DEDUP hit (conversion already in flight) seg=${segmentationId}`
+      );
+      return existing;
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[SEG-LOAD] ${performance.now().toFixed(0)} _ensureVolumeLabelmap: START stack->volume conversion seg=${segmentationId} (heavy)`
+    );
+    const conversion = convertStackToVolumeLabelmap(segmentation).finally(() => {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[SEG-LOAD] ${performance.now().toFixed(0)} _ensureVolumeLabelmap: DONE stack->volume conversion seg=${segmentationId}`
+      );
+      this._stackToVolumeLabelmapConversions.delete(segmentationId);
+    });
+    this._stackToVolumeLabelmapConversions.set(segmentationId, conversion);
+    return conversion;
   }
 
   private async convertStackToVolumeViewport(viewport: csTypes.IViewport): Promise<boolean> {
@@ -2328,9 +2450,16 @@ class SegmentationService extends PubSubService {
   }
 
   private _onSegmentationDataModifiedFromSource = evt => {
-    const { segmentationId } = evt.detail;
+    const { segmentationId, modifiedSlicesToUse, segmentIndex } = evt.detail;
+    // Forward the fields that distinguish a real voxel edit (brush/threshold/etc.
+    // pass modifiedSlicesToUse + segmentIndex) from a representation-add, which
+    // Cornerstone reports as a data modification with only the segmentationId.
+    // Consumers (e.g. the stats handler) use these to avoid recomputing
+    // whole-volume statistics when nothing actually changed.
     this._broadcastEvent(this.EVENTS.SEGMENTATION_DATA_MODIFIED, {
       segmentationId,
+      modifiedSlicesToUse,
+      segmentIndex,
     });
   };
 

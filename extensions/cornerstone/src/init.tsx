@@ -37,6 +37,7 @@ import interleaveTopToBottom from './utils/interleaveTopToBottom';
 import initContextMenu from './initContextMenu';
 import initDoubleClick from './initDoubleClick';
 import initViewTiming from './utils/initViewTiming';
+import { initProbe3DMarkers } from './utils/probe3DMarkers';
 import { colormaps } from './utils/colormaps';
 import { SegmentationRepresentations } from '@cornerstonejs/tools/enums';
 import { useLutPresentationStore } from './stores/useLutPresentationStore';
@@ -222,6 +223,9 @@ export default async function init({
     const { uid: annotationUID } = measurement;
     commandsManager.runCommand('jumpToMeasurementViewport', { measurement, annotationUID, evt });
   });
+
+  // Render measurement points (Probe) as 3D markers in VOLUME_3D viewports.
+  this.probe3DMarkersTeardown = initProbe3DMarkers({ servicesManager });
 
   // When a custom image load is performed, update the relevant viewports
   hangingProtocolService.subscribe(

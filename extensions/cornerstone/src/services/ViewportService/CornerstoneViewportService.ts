@@ -1120,6 +1120,11 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       });
     }
 
+    // eslint-disable-next-line no-console
+    console.log(
+      `[SEG-LOAD] ${performance.now().toFixed(0)} setVolumesForViewport: viewport=${viewport.id} setVolumes(${volumeInputArray.length} volume(s)), overlays=${overlayProcessingResults?.length || 0} -> rebuilds the background volume (the blank flash) — caller stack:\n` +
+        (new Error().stack?.split('\n').slice(2, 9).join('\n') ?? '(no stack)')
+    );
     await viewport.setVolumes(volumeInputArray);
 
     if (overlayProcessingResults?.length) {
@@ -1295,6 +1300,10 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
         : csToolsEnums.SegmentationRepresentations.Contour;
 
     const { predecessorImageId } = displaySet;
+    // eslint-disable-next-line no-console
+    console.log(
+      `[SEG-LOAD] ${performance.now().toFixed(0)} addOverlayRepresentationForDisplaySet: viewport=${viewport.id} segmentationId=${segmentationId} type=${representationType}`
+    );
     segmentationService.addSegmentationRepresentation(viewport.id, {
       segmentationId,
       predecessorImageId,
