@@ -320,17 +320,9 @@ class SegmentationService extends PubSubService {
     const inFlightKey = `${viewportId}::${segmentationId}::${type ?? 'default'}`;
     const existing = this._addRepresentationInFlight.get(inFlightKey);
     if (existing) {
-      // eslint-disable-next-line no-console
-      console.log(
-        `[SEG-LOAD] ${performance.now().toFixed(0)} addSegmentationRepresentation: DEDUP hit (already in flight) key=${inFlightKey}`
-      );
       return existing;
     }
 
-    // eslint-disable-next-line no-console
-    console.log(
-      `[SEG-LOAD] ${performance.now().toFixed(0)} addSegmentationRepresentation: START key=${inFlightKey}`
-    );
     const op = this._performAddSegmentationRepresentation(viewportId, options).finally(() => {
       this._addRepresentationInFlight.delete(inFlightKey);
     });
@@ -1969,10 +1961,6 @@ class SegmentationService extends PubSubService {
     }
 
     const addRepresentation = () => {
-      // eslint-disable-next-line no-console
-      console.log(
-        `[SEG-LOAD] ${performance.now().toFixed(0)} _addSegmentationRepresentation: cstSegmentation.addSegmentationRepresentations viewport=${viewportId} type=${representationType} (triggers a seg render on this viewport)`
-      );
       cstSegmentation.addSegmentationRepresentations(viewportId, [representation]);
     };
 
@@ -2032,22 +2020,10 @@ class SegmentationService extends PubSubService {
 
     const existing = this._stackToVolumeLabelmapConversions.get(segmentationId);
     if (existing) {
-      // eslint-disable-next-line no-console
-      console.log(
-        `[SEG-LOAD] ${performance.now().toFixed(0)} _ensureVolumeLabelmap: DEDUP hit (conversion already in flight) seg=${segmentationId}`
-      );
       return existing;
     }
 
-    // eslint-disable-next-line no-console
-    console.log(
-      `[SEG-LOAD] ${performance.now().toFixed(0)} _ensureVolumeLabelmap: START stack->volume conversion seg=${segmentationId} (heavy)`
-    );
     const conversion = convertStackToVolumeLabelmap(segmentation).finally(() => {
-      // eslint-disable-next-line no-console
-      console.log(
-        `[SEG-LOAD] ${performance.now().toFixed(0)} _ensureVolumeLabelmap: DONE stack->volume conversion seg=${segmentationId}`
-      );
       this._stackToVolumeLabelmapConversions.delete(segmentationId);
     });
     this._stackToVolumeLabelmapConversions.set(segmentationId, conversion);

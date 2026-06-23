@@ -107,6 +107,62 @@ function extractAffineInfo(niftiHeader) {
   };
 }
 
+/**
+ * Registers an already-parsed volume (scalar data + geometry) with cornerstone:
+ * stores its pixel data, builds the per-slice imageIds + metadata, and ensures
+ * the shared `nifti:` image loader is registered. Format-agnostic — both the
+ * NIfTI loader and the NRRD loader feed their parsed output through here so a
+ * registered volume behaves identically regardless of the source file format.
+ */
+function registerParsedVolume({
+  scalarData,
+  rows,
+  columns,
+  numSlices,
+  spacing,
+  direction,
+  origin,
+  ArrayConstructor,
+}) {
+  ensureLoaderRegistered();
+
+  const volumeId = `nifti-local-${generateUID()}`;
+
+  niftiDataStore.set(volumeId, {
+    scalarData,
+    rows,
+    columns,
+    numSlices,
+    spacing,
+    direction,
+    origin,
+    ArrayConstructor,
+  });
+
+  const imageIds = registerVolumeImageIds({
+    volumeId,
+    rows,
+    columns,
+    numSlices,
+    spacing,
+    direction,
+    origin,
+    ArrayConstructor,
+  });
+
+  return {
+    imageIds,
+    volumeId,
+    rows,
+    columns,
+    numSlices,
+    spacing,
+    direction,
+    origin,
+    ArrayConstructor,
+  };
+}
+
 async function processNiftiFile(file) {
   initNifti();
 
@@ -132,11 +188,8 @@ async function processNiftiFile(file) {
   const scalarData = new ArrayConstructor(niftiImage);
   const { spacing, direction, origin } = extractAffineInfo(niftiHeader);
 
-  const volumeId = `nifti-local-${generateUID()}`;
-
-  niftiDataStore.set(volumeId, {
+  return registerParsedVolume({
     scalarData,
-    niftiHeader,
     rows,
     columns,
     numSlices,
@@ -145,31 +198,6 @@ async function processNiftiFile(file) {
     origin,
     ArrayConstructor,
   });
-
-  const imageIds = registerVolumeImageIds({
-    volumeId,
-    rows,
-    columns,
-    numSlices,
-    spacing,
-    direction,
-    origin,
-    ArrayConstructor,
-  });
-
-  registerNiftiImageLoader(volumeId);
-
-  return {
-    imageIds,
-    volumeId,
-    rows,
-    columns,
-    numSlices,
-    spacing,
-    direction,
-    origin,
-    ArrayConstructor,
-  };
 }
 
 /**
@@ -258,12 +286,6 @@ function registerVolumeImageIds({
   }
 
   return imageIds;
-}
-
-function registerNiftiImageLoader(volumeId) {
-  if (!niftiDataStore.has(volumeId)) {
-    return;
-  }
 }
 
 function localNiftiImageLoader(imageId) {
@@ -538,10 +560,13 @@ function createBlankReferenceVolume(geometry, meta) {
   return { SeriesInstanceUID, instances };
 }
 
-async function addNiftiToMetadataStore(file, options = {}) {
-  ensureLoaderRegistered();
-
-  const result = await processNiftiFile(file);
+/**
+ * Builds the synthetic DICOM-like instances for an already-registered volume
+ * (see registerParsedVolume) and adds them to the DicomMetadataStore. Shared by
+ * the NIfTI and NRRD loaders — `displayName` is the source file name with its
+ * format extension already stripped (e.g. "case-001" or "case-001_seg").
+ */
+async function addRegisteredVolumeToMetadataStore(result, displayName, options = {}) {
   const {
     imageIds,
     rows,
@@ -570,7 +595,7 @@ async function addNiftiToMetadataStore(file, options = {}) {
   const FrameOfReferenceUID =
     referencedSeries?.instances?.[0]?.FrameOfReferenceUID || generateUID();
 
-  const fileName = stripNiftiExtension(file.name);
+  const fileName = displayName;
   const baseFileName = stripSegmentationSuffix(fileName);
   const now = new Date();
   const studyDate = now.toISOString().slice(0, 10).replace(/-/g, '');
@@ -702,9 +727,16 @@ async function addNiftiToMetadataStore(file, options = {}) {
   return StudyInstanceUID;
 }
 
+async function addNiftiToMetadataStore(file, options = {}) {
+  const result = await processNiftiFile(file);
+  return addRegisteredVolumeToMetadataStore(result, stripNiftiExtension(file.name), options);
+}
+
 export {
   isNiftiFile,
   processNiftiFile,
+  registerParsedVolume,
+  addRegisteredVolumeToMetadataStore,
   addNiftiToMetadataStore,
   buildReferencedSeriesSequence,
   normalizeNiftiImportKind,

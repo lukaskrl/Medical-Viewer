@@ -5,6 +5,7 @@ import { DicomMetadataStore } from '@ohif/core';
 
 import filesToStudies from './filesToStudies';
 import { isNiftiFile } from './niftiFileLoader';
+import { isNrrdFile } from './nrrdFileLoader';
 import NiftiImportModal from './NiftiImportModal';
 
 type StudyOption = {
@@ -96,7 +97,7 @@ function ViewerDicomUpload({
       if (!acceptedFiles?.length) {
         return;
       }
-      const niftiFiles = acceptedFiles.filter(isNiftiFile);
+      const niftiFiles = acceptedFiles.filter(file => isNiftiFile(file) || isNrrdFile(file));
       if (niftiFiles.length > 0) {
         setPendingNiftiImport({ acceptedFiles, niftiFiles });
         return;
@@ -209,7 +210,8 @@ function ViewerDicomUpload({
               or drag images or folders here
             </div>
             <div className="text-muted-foreground pt-1 text-sm">
-              DICOM (.dcm) and NIfTI (.nii, .nii.gz) supported. Data stays in this browser session.
+              DICOM (.dcm), NIfTI (.nii, .nii.gz) and NRRD (.nrrd, .seg.nrrd) supported. Data stays
+              in this browser session.
             </div>
             {onClose && (
               <div className="pt-6">

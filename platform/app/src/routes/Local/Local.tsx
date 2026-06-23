@@ -6,6 +6,7 @@ import { DicomMetadataStore, MODULE_TYPES, useSystem } from '@ohif/core';
 import Dropzone from 'react-dropzone';
 import filesToStudies from './filesToStudies';
 import { isNiftiFile } from './niftiFileLoader';
+import { isNrrdFile } from './nrrdFileLoader';
 import NiftiImportModal from './NiftiImportModal';
 
 import { extensionManager } from '../../App';
@@ -145,9 +146,9 @@ function Local({ modePath }: LocalProps) {
   };
 
   const onDrop = async acceptedFiles => {
-    const niftiFiles = acceptedFiles.filter(isNiftiFile);
+    const niftiFiles = acceptedFiles.filter(file => isNiftiFile(file) || isNrrdFile(file));
 
-    // Let the user confirm volume/segmentation for every NIfTI file at once.
+    // Let the user confirm volume/segmentation for every NIfTI/NRRD file at once.
     if (niftiFiles.length > 0) {
       setPendingNiftiImport({ acceptedFiles, niftiFiles });
       return;
@@ -209,11 +210,11 @@ function Local({ modePath }: LocalProps) {
                 ) : (
                   <div className="space-y-2">
                     <p className="text-primary pt-0 text-xl">
-                      Drag and drop your DICOM or NIfTI files & folders here <br />
+                      Drag and drop your DICOM, NIfTI or NRRD files & folders here <br />
                       to load them locally.
                     </p>
                     <p className="text-muted-foreground text-base">
-                      Supported formats: DICOM (.dcm), NIfTI (.nii, .nii.gz)
+                      Supported formats: DICOM (.dcm), NIfTI (.nii, .nii.gz), NRRD (.nrrd, .seg.nrrd)
                       <br />
                       Note: Your data remains locally within your browser
                       <br /> and is never uploaded to any server.

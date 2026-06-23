@@ -3,8 +3,11 @@ const NIFTI_IMPORT_KINDS = {
   SEGMENTATION: 'segmentation',
 };
 
+// Strips the volume extension for both NIfTI (.nii/.nii.gz) and NRRD
+// (.nrrd/.seg.nrrd/.nhdr) files. ".seg.nrrd" is removed whole so a Slicer
+// segmentation collapses to the same base name as its matching volume.
 function stripNiftiExtension(fileName) {
-  return fileName.replace(/\.(nii|nii\.gz)$/i, '');
+  return fileName.replace(/\.(nii\.gz|nii|seg\.nrrd|nrrd|nhdr)$/i, '');
 }
 
 function stripSegmentationSuffix(fileName) {
@@ -16,7 +19,9 @@ function normalizeLookupName(fileName) {
 }
 
 function inferNiftiImportKind(fileName) {
-  return /([_-](seg|mask|segmentation))\.nii(\.gz)?$/i.test(fileName)
+  // Segmentation if the name carries a seg/mask suffix (NIfTI or NRRD) or uses
+  // the 3D Slicer ".seg.nrrd" convention.
+  return /(\.seg\.nrrd|[_-](seg|mask|segmentation)\.(nii\.gz|nii|nrrd|nhdr))$/i.test(fileName)
     ? NIFTI_IMPORT_KINDS.SEGMENTATION
     : NIFTI_IMPORT_KINDS.VOLUME;
 }

@@ -11,6 +11,7 @@ import Dropzone from 'react-dropzone';
 import filtersMeta from './filtersMeta.js';
 import filesToStudies from '../Local/filesToStudies';
 import { isNiftiFile } from '../Local/niftiFileLoader';
+import { isNrrdFile } from '../Local/nrrdFileLoader';
 import NiftiImportModal from '../Local/NiftiImportModal';
 import { useAppConfig } from '@state';
 import { useDebounce, useSearchParams } from '../../hooks';
@@ -608,7 +609,7 @@ function WorkList({
       query.append('datasources', 'dicomlocal');
       preserveQueryParameters(query);
 
-      navigate(`/?${decodeURIComponent(query.toString())}`);
+      navigate(`/viewer/dicomlocal?${decodeURIComponent(query.toString())}`);
     } finally {
       setDropInitiated(false);
     }
@@ -619,9 +620,9 @@ function WorkList({
       return;
     }
 
-    const niftiFiles = acceptedFiles.filter(isNiftiFile);
+    const niftiFiles = acceptedFiles.filter(file => isNiftiFile(file) || isNrrdFile(file));
 
-    // Let the user confirm volume/segmentation for every NIfTI file at once.
+    // Let the user confirm volume/segmentation for every NIfTI/NRRD file at once.
     if (niftiFiles.length > 0) {
       setPendingNiftiImport({ acceptedFiles, niftiFiles });
       return;
@@ -728,7 +729,7 @@ function WorkList({
                         return;
                       }
 
-                      navigate('/local');
+                      navigate('/localbasic');
                     }}
                     getDataSourceConfigurationComponent={
                       dataSourceConfigurationComponent

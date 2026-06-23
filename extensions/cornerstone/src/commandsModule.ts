@@ -1388,6 +1388,66 @@ function commandsModule({
 
       viewport.render();
     },
+    /**
+     * Recenters a 3D (volume render) viewport on whatever is currently visible.
+     * Computes the combined world-space bounding box of every visible actor
+     * (segmentation surfaces and/or the volume) and pans the camera so that
+     * box's center becomes the focal point, preserving the current zoom and
+     * orientation. Multiple visible labels are framed by their combined bounds.
+     */
+    center3DViewport: ({ viewportId }: { viewportId?: string } = {}) => {
+      const viewport = viewportId
+        ? cornerstoneViewportService.getCornerstoneViewport(viewportId)
+        : _getActiveViewportEnabledElement()?.viewport;
+
+      if (!(viewport instanceof BaseVolumeViewport)) {
+        return;
+      }
+
+      // Union the world bounds [xMin,xMax,yMin,yMax,zMin,zMax] of visible actors.
+      let bounds: number[] | null = null;
+      for (const { actor } of viewport.getActors()) {
+        if (!actor?.getBounds || actor.getVisibility?.() === false) {
+          continue;
+        }
+        const b = actor.getBounds();
+        // Skip empty/invalid bounds (uninitialized actors report min > max).
+        if (!b || b[0] > b[1]) {
+          continue;
+        }
+        bounds = bounds
+          ? [
+              Math.min(bounds[0], b[0]),
+              Math.max(bounds[1], b[1]),
+              Math.min(bounds[2], b[2]),
+              Math.max(bounds[3], b[3]),
+              Math.min(bounds[4], b[4]),
+              Math.max(bounds[5], b[5]),
+            ]
+          : [...b];
+      }
+
+      if (!bounds) {
+        return;
+      }
+
+      const center: CoreTypes.Point3 = [
+        (bounds[0] + bounds[1]) / 2,
+        (bounds[2] + bounds[3]) / 2,
+        (bounds[4] + bounds[5]) / 2,
+      ];
+
+      // Pan-only recenter: keep the camera's distance + orientation, just move
+      // the focal point (and the camera with it) to the computed center.
+      const { position, focalPoint } = viewport.getCamera();
+      const offset = vec3.sub(vec3.create(), position, focalPoint);
+      const newPosition = vec3.add(vec3.create(), center, offset);
+      viewport.setCamera({
+        focalPoint: center,
+        position: newPosition as unknown as CoreTypes.Point3,
+      });
+      viewport.render();
+    },
     scaleViewport: ({ direction }) => {
       const enabledElement = _getActiveViewportEnabledElement();
       const scaleFactor = direction > 0 ? 0.9 : 1.1;
@@ -2374,12 +2434,6 @@ function commandsModule({
       segmentationService.addSegment(activeSegmentation.segmentationId);
     },
     loadSegmentationDisplaySetsForViewport: ({ viewportId, displaySetInstanceUIDs }) => {
-      // eslint-disable-next-line no-console
-      console.log(
-        `[SEG-LOAD] ${performance.now().toFixed(0)} loadSegmentationDisplaySetsForViewport: viewportId=${viewportId} displaySets=`,
-        displaySetInstanceUIDs,
-        '\n— caller stack:\n' + (new Error().stack?.split('\n').slice(2, 9).join('\n') ?? '(no stack)')
-      );
       const updatedViewports = getUpdatedViewportsForSegmentation({
         viewportId,
         servicesManager,
@@ -2773,6 +2827,9 @@ function commandsModule({
     },
     toggleViewportColorbar: {
       commandFn: actions.toggleViewportColorbar,
+    },
+    center3DViewport: {
+      commandFn: actions.center3DViewport,
     },
     setMeasurementLabel: {
       commandFn: actions.setMeasurementLabel,

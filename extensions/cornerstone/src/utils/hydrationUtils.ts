@@ -16,12 +16,6 @@ function getUpdatedViewportsForSegmentation({
     isHangingProtocolLayout
   );
 
-  // eslint-disable-next-line no-console
-  console.log(
-    `[SEG-LOAD] ${performance.now().toFixed(0)} getUpdatedViewportsForSegmentation: target=${targetViewportId} -> ${updatedViewports?.length ?? 0} viewport(s) require update:`,
-    (updatedViewports ?? []).map(v => v.viewportId)
-  );
-
   return updatedViewports;
 }
 

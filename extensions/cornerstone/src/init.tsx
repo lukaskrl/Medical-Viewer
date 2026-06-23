@@ -51,6 +51,22 @@ const { registerColormap } = csUtilities.colormap;
 // TODO: Cypress tests are currently grabbing this from the window?
 (window as any).cornerstone = cornerstone;
 (window as any).cornerstoneTools = cornerstoneTools;
+
+/**
+ * Detects whether the current WebGL2 driver exposes the EXT_texture_norm16
+ * extension. Notably, NVIDIA's Linux driver in Firefox does NOT expose it, while
+ * AMD/Mesa does. Without norm16, Cornerstone uploads volume scalars as float32
+ * textures, a path that mis-renders segmentation overlays on those drivers.
+ */
+function hasNorm16TextureSupport(): boolean {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    return Boolean(gl && gl.getExtension('EXT_texture_norm16'));
+  } catch {
+    return false;
+  }
+}
+
 /**
  *
  */
@@ -74,11 +90,19 @@ export default async function init({
   // For debugging e2e tests that are failing on CI
   cornerstone.setUseCPURendering(Boolean(appConfig.useCPURendering));
 
+  // When EXT_texture_norm16 is unavailable (e.g. NVIDIA on Linux/Firefox),
+  // Cornerstone falls back to float32 volume textures, which mis-render
+  // segmentation overlays on those drivers. Prefer the compact half-float path
+  // instead. Can be forced via appConfig.preferSizeOverAccuracy.
+  const preferSizeOverAccuracy =
+    Boolean(appConfig.preferSizeOverAccuracy) || !hasNorm16TextureSupport();
+
   cornerstone.setConfiguration({
     ...cornerstone.getConfiguration(),
     rendering: {
       ...cornerstone.getConfiguration().rendering,
       strictZSpacingForVolumeViewport: appConfig.strictZSpacingForVolumeViewport,
+      preferSizeOverAccuracy,
     },
   });
 

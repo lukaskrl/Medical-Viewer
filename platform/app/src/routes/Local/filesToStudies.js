@@ -1,6 +1,7 @@
 import FileLoaderService from './fileLoaderService';
 import { DicomMetadataStore } from '@ohif/core';
 import { isNiftiFile, addNiftiToMetadataStore } from './niftiFileLoader';
+import { isNrrdFile, addNrrdToMetadataStore } from './nrrdFileLoader';
 import { inferNiftiImportKind, NIFTI_IMPORT_KINDS } from './niftiUploadOptions';
 
 const processFile = async file => {
@@ -16,11 +17,16 @@ const processFile = async file => {
   }
 };
 
-const processNiftiFile = async (file, niftiOptions) => {
+// Route a NIfTI or NRRD file to its loader. Both produce synthetic DICOM-like
+// instances in the metadata store and return the StudyInstanceUID they created.
+const processVolumeFile = async (file, importOptions) => {
   try {
-    return await addNiftiToMetadataStore(file, niftiOptions);
+    if (isNrrdFile(file)) {
+      return await addNrrdToMetadataStore(file, importOptions);
+    }
+    return await addNiftiToMetadataStore(file, importOptions);
   } catch (error) {
-    console.log('Error when trying to load NIfTI file:', error.message);
+    console.log('Error when trying to load NIfTI/NRRD file:', error.message);
     return null;
   }
 };
@@ -30,7 +36,7 @@ export default async function filesToStudies(files, _dataSource, options = {}) {
   const otherFiles = [];
 
   files.forEach(file => {
-    if (isNiftiFile(file)) {
+    if (isNiftiFile(file) || isNrrdFile(file)) {
       niftiFiles.push(file);
     } else {
       otherFiles.push(file);
@@ -67,7 +73,7 @@ export default async function filesToStudies(files, _dataSource, options = {}) {
   // Volumes first so segmentations can reference a volume from the same batch.
   const volumeInfoByFileName = new Map();
   for (const file of niftiVolumeFiles) {
-    const studyInstanceUID = await processNiftiFile(file, getOptions(file));
+    const studyInstanceUID = await processVolumeFile(file, getOptions(file));
     if (studyInstanceUID) {
       const study = DicomMetadataStore.getStudy(studyInstanceUID);
       volumeInfoByFileName.set(file.name, {
@@ -90,7 +96,7 @@ export default async function filesToStudies(files, _dataSource, options = {}) {
       }
     }
 
-    await processNiftiFile(file, fileOptions);
+    await processVolumeFile(file, fileOptions);
   }
 
   return DicomMetadataStore.getStudyInstanceUIDs();

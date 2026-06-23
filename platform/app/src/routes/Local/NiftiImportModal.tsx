@@ -42,7 +42,7 @@ type NiftiImportModalProps = {
 };
 
 /**
- * Lists every dropped NIfTI file so the user can confirm or correct whether
+ * Lists every dropped NIfTI/NRRD file so the user can confirm or correct whether
  * each one is a volume or a segmentation (and, for segmentations, which
  * volume/study it belongs to) before importing.
  */
@@ -183,7 +183,7 @@ function NiftiImportModal({ files, studies = [], onConfirm, onCancel }: NiftiImp
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Icons.Upload className="h-5 w-5 shrink-0" />
-            Confirm NIfTI import
+            Confirm import
           </DialogTitle>
           <DialogDescription className="text-white">
             Review the auto-detected file types. Link any segmentation to its reference volume
