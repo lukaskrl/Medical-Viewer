@@ -411,22 +411,49 @@ function stripSegmentationSuffix(fileName) {
   return fileName.replace(/([_-](seg|mask|segmentation))$/i, '');
 }
 
+// Modalities that are derived overlays, not image volumes. A segmentation must
+// hang on an image series — never on another SEG/RT/SR/etc. Picking one of these
+// as the reference makes the new seg reference an existing seg's display set,
+// which then has no `.images` to render against (see _processExtraDisplaySets
+// ForViewport) and the viewport snaps back to the referenced seg.
+const NON_IMAGE_REFERENCE_MODALITIES = new Set([
+  'SEG',
+  'RTSTRUCT',
+  'RTPLAN',
+  'RTDOSE',
+  'SR',
+  'KO',
+  'PR',
+  'PMAP',
+  'REG',
+  'DOC',
+]);
+
+function isImageReferenceSeries(series) {
+  const modality = series?.instances?.[0]?.Modality || series?.Modality;
+  return !!modality && !NON_IMAGE_REFERENCE_MODALITIES.has(modality);
+}
+
 function inferReferenceSeriesFromStudy(study, referenceSeriesInstanceUID) {
   if (!study?.series?.length) {
     return null;
   }
 
+  // Only ever accept an image series as a segmentation's reference. If the
+  // requested series is itself a SEG (e.g. a standalone seg's study where the
+  // SEG series sorts ahead of its blank companion volume), fall through to the
+  // first real image series instead of referencing another segmentation.
   if (referenceSeriesInstanceUID) {
     const referencedSeries = study.series.find(
       series => series.SeriesInstanceUID === referenceSeriesInstanceUID
     );
 
-    if (referencedSeries) {
+    if (referencedSeries && isImageReferenceSeries(referencedSeries)) {
       return referencedSeries;
     }
   }
 
-  return study.series[0];
+  return study.series.find(isImageReferenceSeries) || null;
 }
 
 function buildReferencedSeriesSequence({
@@ -739,6 +766,8 @@ export {
   addRegisteredVolumeToMetadataStore,
   addNiftiToMetadataStore,
   buildReferencedSeriesSequence,
+  inferReferenceSeriesFromStudy,
+  isImageReferenceSeries,
   normalizeNiftiImportKind,
   stripSegmentationSuffix,
   stripNiftiExtension,

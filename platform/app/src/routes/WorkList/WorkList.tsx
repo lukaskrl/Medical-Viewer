@@ -10,7 +10,7 @@ import Dropzone from 'react-dropzone';
 //
 import filtersMeta from './filtersMeta.js';
 import filesToStudies from '../Local/filesToStudies';
-import { isNiftiFile } from '../Local/niftiFileLoader';
+import { isNiftiFile, isImageReferenceSeries } from '../Local/niftiFileLoader';
 import { isNrrdFile } from '../Local/nrrdFileLoader';
 import NiftiImportModal from '../Local/NiftiImportModal';
 import { useAppConfig } from '@state';
@@ -577,14 +577,19 @@ function WorkList({
         return acc;
       }
 
-      const firstSeries = study.series?.[0];
+      // A segmentation can only reference an image series, never another
+      // derived overlay (SEG/RT/SR/…), so surface the first image series.
+      const referenceSeries = study.series?.find(isImageReferenceSeries);
+      if (!referenceSeries) {
+        return acc;
+      }
       const description =
-        firstSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
-      const seriesDescription = firstSeries?.instances?.[0]?.SeriesDescription || '';
+        referenceSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
+      const seriesDescription = referenceSeries?.instances?.[0]?.SeriesDescription || '';
 
       acc.push({
         StudyInstanceUID,
-        SeriesInstanceUID: firstSeries?.SeriesInstanceUID,
+        SeriesInstanceUID: referenceSeries?.SeriesInstanceUID,
         label: seriesDescription ? `${description} / ${seriesDescription}` : description,
       });
 

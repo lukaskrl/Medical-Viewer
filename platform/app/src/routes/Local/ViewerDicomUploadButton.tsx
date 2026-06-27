@@ -3,6 +3,7 @@ import { Icons, useModal, Tooltip, TooltipContent, TooltipTrigger } from '@ohif/
 import { useSystem, DicomMetadataStore } from '@ohif/core';
 
 import ViewerDicomUpload from './ViewerDicomUpload';
+import { isImageReferenceSeries } from './niftiFileLoader';
 
 /**
  * Icon button rendered next to the side panel close icon. Opens the upload
@@ -26,13 +27,18 @@ function ViewerDicomUploadButton() {
       if (!study) {
         return acc;
       }
-      const firstSeries = study.series?.[0];
+      // A segmentation can only reference an image series, never another
+      // derived overlay (SEG/RT/SR/…), so surface the first image series.
+      const referenceSeries = study.series?.find(isImageReferenceSeries);
+      if (!referenceSeries) {
+        return acc;
+      }
       const description =
-        firstSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
-      const seriesDescription = firstSeries?.instances?.[0]?.SeriesDescription || '';
+        referenceSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
+      const seriesDescription = referenceSeries?.instances?.[0]?.SeriesDescription || '';
       acc.push({
         StudyInstanceUID,
-        SeriesInstanceUID: firstSeries?.SeriesInstanceUID,
+        SeriesInstanceUID: referenceSeries?.SeriesInstanceUID,
         label: seriesDescription ? `${description} / ${seriesDescription}` : description,
       });
       return acc;

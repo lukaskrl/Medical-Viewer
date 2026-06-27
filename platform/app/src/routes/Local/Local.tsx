@@ -5,7 +5,7 @@ import { DicomMetadataStore, MODULE_TYPES, useSystem } from '@ohif/core';
 
 import Dropzone from 'react-dropzone';
 import filesToStudies from './filesToStudies';
-import { isNiftiFile } from './niftiFileLoader';
+import { isNiftiFile, isImageReferenceSeries } from './niftiFileLoader';
 import { isNrrdFile } from './nrrdFileLoader';
 import NiftiImportModal from './NiftiImportModal';
 
@@ -96,14 +96,19 @@ function Local({ modePath }: LocalProps) {
         return acc;
       }
 
-      const firstSeries = study.series?.[0];
+      // A segmentation can only reference an image series, never another
+      // derived overlay (SEG/RT/SR/…), so surface the first image series.
+      const referenceSeries = study.series?.find(isImageReferenceSeries);
+      if (!referenceSeries) {
+        return acc;
+      }
       const description =
-        firstSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
-      const seriesDescription = firstSeries?.instances?.[0]?.SeriesDescription || '';
+        referenceSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
+      const seriesDescription = referenceSeries?.instances?.[0]?.SeriesDescription || '';
 
       acc.push({
         StudyInstanceUID,
-        SeriesInstanceUID: firstSeries?.SeriesInstanceUID,
+        SeriesInstanceUID: referenceSeries?.SeriesInstanceUID,
         label: seriesDescription ? `${description} / ${seriesDescription}` : description,
       });
 
