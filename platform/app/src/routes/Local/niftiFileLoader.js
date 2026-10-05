@@ -31,10 +31,15 @@ function initNifti() {
   niftiLoaderInitialized = true;
 }
 
+// Every slice of a volume gets its UID in the same millisecond, so the counter
+// keeps them unique; with only the random part, slices could collide and the
+// metadata store would drop one of them.
+let uidCounter = 0;
+
 function generateUID() {
   const timestamp = Date.now();
   const random = Math.floor(Math.random() * 1000000);
-  return `2.25.${timestamp}.${random}`;
+  return `2.25.${timestamp}.${++uidCounter}.${random}`;
 }
 
 // NIfTI and NRRD carry no frame of reference, but their affines all place

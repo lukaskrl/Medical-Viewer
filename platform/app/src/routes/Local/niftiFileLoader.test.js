@@ -181,6 +181,22 @@ describe('niftiFileLoader grid-matched references', () => {
     expect(second.FrameOfReferenceUID).toBe(first.FrameOfReferenceUID);
   });
 
+  it('gives every slice a unique SOPInstanceUID when they are made in the same millisecond', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1791208055831);
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      const { StudyInstanceUID } = await importFile('case-001', 'volume');
+      const [series] = studies.get(StudyInstanceUID).series;
+      const sopUIDs = new Set(series.instances.map(instance => instance.SOPInstanceUID));
+
+      expect(series.instances).toHaveLength(5);
+      expect(sopUIDs.size).toBe(5);
+    } finally {
+      now.mockRestore();
+      random.mockRestore();
+    }
+  });
+
   it('references a loaded volume with the same grid instead of creating a canvas', async () => {
     const volume = await importFile('case-001', 'volume');
     const seg = await importFile('case-001_seg', 'segmentation');
