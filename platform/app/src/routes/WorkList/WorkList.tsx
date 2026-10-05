@@ -10,12 +10,12 @@ import Dropzone from 'react-dropzone';
 //
 import filtersMeta from './filtersMeta.js';
 import filesToStudies from '../Local/filesToStudies';
-import { isNiftiFile, isImageReferenceSeries } from '../Local/niftiFileLoader';
+import { isNiftiFile } from '../Local/niftiFileLoader';
 import { isNrrdFile } from '../Local/nrrdFileLoader';
 import NiftiImportModal from '../Local/NiftiImportModal';
 import { useAppConfig } from '@state';
 import { useDebounce, useSearchParams } from '../../hooks';
-import { DicomMetadataStore, utils, Types as coreTypes } from '@ohif/core';
+import { utils, Types as coreTypes } from '@ohif/core';
 
 import {
   StudyListExpandedRow,
@@ -568,35 +568,6 @@ function WorkList({
     'ohif.dataSourceConfigurationComponent'
   );
 
-  // Existing studies in the metadata store that a segmentation can be linked to.
-  const getExistingStudyOptions = () => {
-    const studyInstanceUIDs = DicomMetadataStore.getStudyInstanceUIDs() as any[];
-    return studyInstanceUIDs.reduce((acc: any[], StudyInstanceUID) => {
-      const study = DicomMetadataStore.getStudy(StudyInstanceUID) as any;
-      if (!study) {
-        return acc;
-      }
-
-      // A segmentation can only reference an image series, never another
-      // derived overlay (SEG/RT/SR/…), so surface the first image series.
-      const referenceSeries = study.series?.find(isImageReferenceSeries);
-      if (!referenceSeries) {
-        return acc;
-      }
-      const description =
-        referenceSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
-      const seriesDescription = referenceSeries?.instances?.[0]?.SeriesDescription || '';
-
-      acc.push({
-        StudyInstanceUID,
-        SeriesInstanceUID: referenceSeries?.SeriesInstanceUID,
-        label: seriesDescription ? `${description} / ${seriesDescription}` : description,
-      });
-
-      return acc;
-    }, []);
-  };
-
   const loadDroppedFiles = async (acceptedFiles, niftiOptionsByFile) => {
     setDropInitiated(true);
 
@@ -694,7 +665,9 @@ function WorkList({
       {pendingNiftiImport && (
         <NiftiImportModal
           files={pendingNiftiImport.niftiFiles}
-          studies={getExistingStudyOptions()}
+          hasOtherFiles={
+            pendingNiftiImport.acceptedFiles.length > pendingNiftiImport.niftiFiles.length
+          }
           onConfirm={handleNiftiConfirm}
           onCancel={handleNiftiCancel}
         />

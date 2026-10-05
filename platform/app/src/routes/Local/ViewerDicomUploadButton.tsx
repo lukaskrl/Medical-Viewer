@@ -1,9 +1,8 @@
 import React from 'react';
 import { Icons, useModal, Tooltip, TooltipContent, TooltipTrigger } from '@ohif/ui-next';
-import { useSystem, DicomMetadataStore } from '@ohif/core';
+import { useSystem } from '@ohif/core';
 
 import ViewerDicomUpload from './ViewerDicomUpload';
-import { isImageReferenceSeries } from './niftiFileLoader';
 
 /**
  * Icon button rendered next to the side panel close icon. Opens the upload
@@ -20,31 +19,6 @@ function ViewerDicomUploadButton() {
     return null;
   }
 
-  const getExistingStudyOptions = () => {
-    const studyInstanceUIDs = DicomMetadataStore.getStudyInstanceUIDs() as string[];
-    return studyInstanceUIDs.reduce((acc: any[], StudyInstanceUID) => {
-      const study = DicomMetadataStore.getStudy(StudyInstanceUID) as any;
-      if (!study) {
-        return acc;
-      }
-      // A segmentation can only reference an image series, never another
-      // derived overlay (SEG/RT/SR/…), so surface the first image series.
-      const referenceSeries = study.series?.find(isImageReferenceSeries);
-      if (!referenceSeries) {
-        return acc;
-      }
-      const description =
-        referenceSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
-      const seriesDescription = referenceSeries?.instances?.[0]?.SeriesDescription || '';
-      acc.push({
-        StudyInstanceUID,
-        SeriesInstanceUID: referenceSeries?.SeriesInstanceUID,
-        label: seriesDescription ? `${description} / ${seriesDescription}` : description,
-      });
-      return acc;
-    }, []);
-  };
-
   const openUpload = () => {
     show({
       title: 'Add studies to viewer',
@@ -53,7 +27,6 @@ function ViewerDicomUploadButton() {
         <ViewerDicomUpload
           dataSource={dataSource}
           variant="modal"
-          getExistingStudyOptions={getExistingStudyOptions}
           onUploaded={() => {
             // PanelStudyBrowser listens for STUDY_ADDED events and updates
             // itself, so we can close the dialog as soon as ingestion finishes.

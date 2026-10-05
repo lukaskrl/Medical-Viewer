@@ -8,6 +8,15 @@ import {
 import * as cornerstone from '@cornerstonejs/core';
 import { DicomMetadataStore } from '@ohif/core';
 
+import {
+  isImageReferenceSeries,
+  getSlicePosition,
+  getParsedVolumeGeometry,
+  formatGeometry,
+  getReferenceSeriesCandidates,
+  pickMatchingReference,
+} from './segmentationReference';
+
 let niftiLoaderInitialized = false;
 const niftiDataStore = new Map();
 
@@ -27,6 +36,16 @@ function generateUID() {
   const random = Math.floor(Math.random() * 1000000);
   return `2.25.${timestamp}.${random}`;
 }
+
+// NIfTI and NRRD carry no frame of reference, but their affines all place
+// voxels in the same scanner world space. Every import that is not linked to a
+// DICOM series shares this one, so the viewer treats them as one space.
+const NIFTI_FRAME_OF_REFERENCE_UID = generateUID();
+
+// Blank canvases and the segmentations drawn on them live in one study per
+// session instead of a study per segmentation.
+const SEGMENTATION_WORKSPACE_NAME = 'Imported segmentations';
+let segmentationWorkspaceStudyInstanceUID = null;
 
 function rasToLps(rasMatrix) {
   return [
@@ -200,6 +219,84 @@ async function processNiftiFile(file) {
   });
 }
 
+// Large enough for a NIfTI-2 header (540 bytes); NIfTI-1 needs 348.
+const NIFTI_HEADER_READ_BYTES = 1024;
+
+/**
+ * The first bytes of a (possibly gzipped) NIfTI file, without reading or
+ * decompressing the rest of it.
+ */
+async function readNiftiHead(file) {
+  const magic = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+  const isGzip = magic[0] === 0x1f && magic[1] === 0x8b;
+
+  if (!isGzip) {
+    return file.slice(0, NIFTI_HEADER_READ_BYTES).arrayBuffer();
+  }
+
+  if (typeof DecompressionStream === 'undefined') {
+    return NiftiReader.decompress(await file.arrayBuffer());
+  }
+
+  const reader = file.stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+  const head = new Uint8Array(NIFTI_HEADER_READ_BYTES);
+  let length = 0;
+  try {
+    while (length < head.length) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      const chunk = value.subarray(0, head.length - length);
+      head.set(chunk, length);
+      length += chunk.length;
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+
+  return head.buffer.slice(0, length);
+}
+
+/**
+ * Grid signature of a NIfTI file read from its header alone, for the import
+ * modal to preview which reference a segmentation will get. Null if the header
+ * cannot be read.
+ */
+async function readNiftiFileGeometry(file) {
+  try {
+    const head = await readNiftiHead(file);
+
+    // Trim to exactly sizeof_hdr so nifti-reader-js does not try to parse
+    // header extensions that lie past the bytes we read.
+    const view = new DataView(head);
+    const littleEndianSize = view.getInt32(0, true);
+    const headerSize = littleEndianSize === 348 || littleEndianSize === 540
+      ? littleEndianSize
+      : view.getInt32(0, false);
+    const headerBuffer = head.slice(0, headerSize);
+
+    if (!NiftiReader.isNIFTI(headerBuffer)) {
+      return null;
+    }
+
+    const niftiHeader = NiftiReader.readHeader(headerBuffer);
+    const { spacing, direction, origin } = extractAffineInfo(niftiHeader);
+
+    return getParsedVolumeGeometry({
+      rows: niftiHeader.dims[2],
+      columns: niftiHeader.dims[1],
+      numSlices: niftiHeader.dims[3] || 1,
+      spacing,
+      direction,
+      origin,
+    });
+  } catch (error) {
+    console.warn('Could not read NIfTI header geometry:', error.message);
+    return null;
+  }
+}
+
 /**
  * Builds the per-slice imageIds for a NIfTI volume and registers the cornerstone
  * metadata (image plane / pixel / general series) for each. Shared by the real
@@ -215,6 +312,7 @@ function registerVolumeImageIds({
   direction,
   origin,
   ArrayConstructor,
+  frameOfReferenceUID = NIFTI_FRAME_OF_REFERENCE_UID,
 }) {
   const imageIds = [];
 
@@ -222,14 +320,10 @@ function registerVolumeImageIds({
     const imageId = `nifti:${volumeId}?frame=${i}`;
     imageIds.push(imageId);
 
-    const imagePositionPatient = [
-      origin[0] + i * direction[6] * spacing[2],
-      origin[1] + i * direction[7] * spacing[2],
-      origin[2] + i * direction[8] * spacing[2],
-    ];
+    const imagePositionPatient = getSlicePosition({ origin, direction, spacing }, i);
 
     const imagePlaneMetadata = {
-      frameOfReferenceUID: '1.2.840.10008.1.4',
+      frameOfReferenceUID,
       rows,
       columns,
       imageOrientationPatient: [
@@ -313,7 +407,7 @@ function localNiftiImageLoader(imageId) {
   const promise = new Promise(resolve => {
     const numVoxels = rows * columns;
 
-    // A blank companion volume (the synthetic reference for a segmentation that
+    // A blank canvas (the synthetic reference for a segmentation that
     // was imported without a volume) carries no scalar data, so every slice is
     // an all-zero (black) frame.
     const pixelData = new ArrayConstructor(numVoxels);
@@ -411,38 +505,14 @@ function stripSegmentationSuffix(fileName) {
   return fileName.replace(/([_-](seg|mask|segmentation))$/i, '');
 }
 
-// Modalities that are derived overlays, not image volumes. A segmentation must
-// hang on an image series — never on another SEG/RT/SR/etc. Picking one of these
-// as the reference makes the new seg reference an existing seg's display set,
-// which then has no `.images` to render against (see _processExtraDisplaySets
-// ForViewport) and the viewport snaps back to the referenced seg.
-const NON_IMAGE_REFERENCE_MODALITIES = new Set([
-  'SEG',
-  'RTSTRUCT',
-  'RTPLAN',
-  'RTDOSE',
-  'SR',
-  'KO',
-  'PR',
-  'PMAP',
-  'REG',
-  'DOC',
-]);
-
-function isImageReferenceSeries(series) {
-  const modality = series?.instances?.[0]?.Modality || series?.Modality;
-  return !!modality && !NON_IMAGE_REFERENCE_MODALITIES.has(modality);
-}
-
 function inferReferenceSeriesFromStudy(study, referenceSeriesInstanceUID) {
   if (!study?.series?.length) {
     return null;
   }
 
   // Only ever accept an image series as a segmentation's reference. If the
-  // requested series is itself a SEG (e.g. a standalone seg's study where the
-  // SEG series sorts ahead of its blank companion volume), fall through to the
-  // first real image series instead of referencing another segmentation.
+  // requested series is itself a SEG, fall through to the first real image
+  // series instead of referencing another segmentation.
   if (referenceSeriesInstanceUID) {
     const referencedSeries = study.series.find(
       series => series.SeriesInstanceUID === referenceSeriesInstanceUID
@@ -454,6 +524,16 @@ function inferReferenceSeriesFromStudy(study, referenceSeriesInstanceUID) {
   }
 
   return study.series.find(isImageReferenceSeries) || null;
+}
+
+function toReferencedSeriesSequence(series) {
+  return {
+    SeriesInstanceUID: series.SeriesInstanceUID,
+    ReferencedInstanceSequence: series.instances.map(instance => ({
+      ReferencedSOPClassUID: instance.SOPClassUID,
+      ReferencedSOPInstanceUID: instance.SOPInstanceUID,
+    })),
+  };
 }
 
 function buildReferencedSeriesSequence({
@@ -471,35 +551,41 @@ function buildReferencedSeriesSequence({
     return null;
   }
 
-  return {
-    SeriesInstanceUID: referencedSeries.SeriesInstanceUID,
-    ReferencedInstanceSequence: referencedSeries.instances.map(instance => ({
-      ReferencedSOPClassUID: instance.SOPClassUID,
-      ReferencedSOPInstanceUID: instance.SOPInstanceUID,
-    })),
-  };
+  return toReferencedSeriesSequence(referencedSeries);
+}
+
+function getPixelRepresentation(ArrayConstructor) {
+  return ArrayConstructor === Uint8Array ||
+    ArrayConstructor === Uint16Array ||
+    ArrayConstructor === Uint32Array
+    ? 0
+    : 1;
+}
+
+function getSegmentationWorkspaceStudyInstanceUID() {
+  // Recreate the study if the metadata store was cleared since it was made.
+  if (
+    !segmentationWorkspaceStudyInstanceUID ||
+    !DicomMetadataStore.getStudy(segmentationWorkspaceStudyInstanceUID)
+  ) {
+    segmentationWorkspaceStudyInstanceUID = generateUID();
+  }
+  return segmentationWorkspaceStudyInstanceUID;
 }
 
 /**
- * Creates a blank (all-zero) reference volume that matches the geometry of a
- * segmentation. A SEG must hang on a volume — when a segmentation is imported
- * without one, this synthesizes the missing volume from the seg's own geometry
- * so the labelmap has something to render against. Returns the new series UID
- * and its instances (a CT-modality image series); the caller is responsible for
- * adding the instances to the DicomMetadataStore.
+ * Creates a blank (all-zero) image series with the grid of a segmentation that
+ * matched no loaded volume and adds it to the metadata store. A SEG must hang on
+ * an image series; later segmentations on the same grid find this canvas
+ * through pickMatchingReference and share it, so they render together.
  */
-function createBlankReferenceVolume(geometry, meta) {
-  const { rows, columns, numSlices, spacing, direction, origin, ArrayConstructor } = geometry;
-  const {
-    StudyInstanceUID,
-    SeriesInstanceUID,
-    FrameOfReferenceUID,
-    studyDate,
-    studyTime,
-    patientName,
-    studyDescription,
-    seriesDescription,
-  } = meta;
+function createBlankCanvas(volume) {
+  const { rows, columns, numSlices, spacing, direction, origin, ArrayConstructor } = volume;
+  const StudyInstanceUID = getSegmentationWorkspaceStudyInstanceUID();
+  const SeriesInstanceUID = generateUID();
+  const now = new Date();
+  const studyDate = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const studyTime = now.toTimeString().slice(0, 8).replace(/:/g, '');
 
   const volumeId = `nifti-blank-${generateUID()}`;
 
@@ -527,64 +613,83 @@ function createBlankReferenceVolume(geometry, meta) {
     ArrayConstructor,
   });
 
-  const pixelRepresentation =
-    ArrayConstructor === Uint8Array ||
-    ArrayConstructor === Uint16Array ||
-    ArrayConstructor === Uint32Array
-      ? 0
-      : 1;
+  const instances = imageIds.map((imageId, index) => ({
+    StudyInstanceUID,
+    SeriesInstanceUID,
+    SOPInstanceUID: generateUID(),
+    FrameOfReferenceUID: NIFTI_FRAME_OF_REFERENCE_UID,
+    PatientID: 'NIfTI-Patient',
+    PatientName: SEGMENTATION_WORKSPACE_NAME,
+    StudyDate: studyDate,
+    StudyTime: studyTime,
+    AccessionNumber: '',
+    StudyDescription: SEGMENTATION_WORKSPACE_NAME,
+    StudyID: '1',
+    SeriesDate: studyDate,
+    SeriesTime: studyTime,
+    SeriesDescription: `Blank canvas ${formatGeometry(getParsedVolumeGeometry(volume))}`,
+    SeriesNumber: 1,
+    Modality: 'CT',
+    InstanceNumber: index + 1,
+    Rows: rows,
+    Columns: columns,
+    SamplesPerPixel: 1,
+    PhotometricInterpretation: 'MONOCHROME2',
+    BitsAllocated: ArrayConstructor.BYTES_PER_ELEMENT * 8,
+    BitsStored: ArrayConstructor.BYTES_PER_ELEMENT * 8,
+    HighBit: ArrayConstructor.BYTES_PER_ELEMENT * 8 - 1,
+    PixelRepresentation: getPixelRepresentation(ArrayConstructor),
+    PlanarConfiguration: 0,
+    NumberOfFrames: 1,
+    ImagePositionPatient: getSlicePosition({ origin, direction, spacing }, index),
+    ImageOrientationPatient: [
+      direction[0], direction[1], direction[2],
+      direction[3], direction[4], direction[5],
+    ],
+    PixelSpacing: [spacing[0], spacing[1]],
+    SliceThickness: spacing[2],
+    url: imageId,
+    imageId,
+    isNifti: true,
+    isBlankSegmentationCanvas: true,
+    SOPClassUID: '1.2.840.10008.5.1.4.1.1.2',
+  }));
 
-  const instances = imageIds.map((imageId, index) => {
-    const SOPInstanceUID = generateUID();
-    const ImagePositionPatient = [
-      origin[0] + index * direction[6] * spacing[2],
-      origin[1] + index * direction[7] * spacing[2],
-      origin[2] + index * direction[8] * spacing[2],
-    ];
+  // Add the canvas before the SEG so its display set exists when the SEG
+  // resolves its reference (makeDisplaySets runs synchronously on
+  // INSTANCES_ADDED).
+  DicomMetadataStore.addInstances(instances, true);
 
-    return {
-      StudyInstanceUID,
-      SeriesInstanceUID,
-      SOPInstanceUID,
-      FrameOfReferenceUID,
-      PatientID: 'NIfTI-Patient',
-      PatientName: patientName,
-      StudyDate: studyDate,
-      StudyTime: studyTime,
-      AccessionNumber: '',
-      StudyDescription: studyDescription,
-      StudyID: '1',
-      SeriesDate: studyDate,
-      SeriesTime: studyTime,
-      SeriesDescription: seriesDescription,
-      SeriesNumber: 1,
-      Modality: 'CT',
-      InstanceNumber: index + 1,
-      Rows: rows,
-      Columns: columns,
-      SamplesPerPixel: 1,
-      PhotometricInterpretation: 'MONOCHROME2',
-      BitsAllocated: ArrayConstructor.BYTES_PER_ELEMENT * 8,
-      BitsStored: ArrayConstructor.BYTES_PER_ELEMENT * 8,
-      HighBit: ArrayConstructor.BYTES_PER_ELEMENT * 8 - 1,
-      PixelRepresentation: pixelRepresentation,
-      PlanarConfiguration: 0,
-      NumberOfFrames: 1,
-      ImagePositionPatient,
-      ImageOrientationPatient: [
-        direction[0], direction[1], direction[2],
-        direction[3], direction[4], direction[5],
-      ],
-      PixelSpacing: [spacing[0], spacing[1]],
-      SliceThickness: spacing[2],
-      url: imageId,
-      imageId,
-      isNifti: true,
-      SOPClassUID: '1.2.840.10008.5.1.4.1.1.2',
-    };
-  });
+  return { StudyInstanceUID, series: { SeriesInstanceUID, instances } };
+}
 
-  return { SeriesInstanceUID, instances };
+/**
+ * The image series a segmentation hangs on: the one the caller linked, else a
+ * loaded series (real volume or blank canvas) with the same grid, else a new
+ * blank canvas.
+ */
+function resolveSegmentationReference(volume, displayName, options) {
+  if (options.referenceStudyInstanceUID) {
+    const study = DicomMetadataStore.getStudy(options.referenceStudyInstanceUID);
+    const series = inferReferenceSeriesFromStudy(study, options.referenceSeriesInstanceUID);
+    if (series?.instances?.length) {
+      return { StudyInstanceUID: options.referenceStudyInstanceUID, series };
+    }
+  }
+
+  const match = pickMatchingReference(
+    getReferenceSeriesCandidates(),
+    getParsedVolumeGeometry(volume),
+    displayName
+  );
+  if (match) {
+    const series = DicomMetadataStore.getSeries(match.StudyInstanceUID, match.SeriesInstanceUID);
+    if (series?.instances?.length) {
+      return { StudyInstanceUID: match.StudyInstanceUID, series };
+    }
+  }
+
+  return createBlankCanvas(volume);
 }
 
 /**
@@ -598,7 +703,6 @@ async function addRegisteredVolumeToMetadataStore(result, displayName, options =
     imageIds,
     rows,
     columns,
-    numSlices,
     spacing,
     direction,
     origin,
@@ -608,19 +712,26 @@ async function addRegisteredVolumeToMetadataStore(result, displayName, options =
   const fileKind = normalizeNiftiImportKind(options.fileKind);
   const isSegmentation = fileKind === NIFTI_IMPORT_KINDS.SEGMENTATION;
 
-  const referencedStudy =
-    isSegmentation && options.referenceStudyInstanceUID
-      ? DicomMetadataStore.getStudy(options.referenceStudyInstanceUID)
-      : null;
-  const referencedSeries =
-    isSegmentation && options.referenceSeriesInstanceUID
-      ? inferReferenceSeriesFromStudy(referencedStudy, options.referenceSeriesInstanceUID)
-      : null;
+  // A segmentation must hang on an image series. Without one the SEG produces
+  // no display set and falls through to the unsupported-display-set handler,
+  // which makes the thumbnail un-openable ("Unsupported displaySet").
+  const reference = isSegmentation
+    ? resolveSegmentationReference(result, displayName, options)
+    : null;
 
-  const StudyInstanceUID = referencedStudy?.StudyInstanceUID || generateUID();
+  const referenceInstance = reference?.series.instances[0];
+
+  const StudyInstanceUID = reference?.StudyInstanceUID || generateUID();
+  const referencedStudy = reference ? DicomMetadataStore.getStudy(StudyInstanceUID) : null;
   const SeriesInstanceUID = generateUID();
   const FrameOfReferenceUID =
-    referencedSeries?.instances?.[0]?.FrameOfReferenceUID || generateUID();
+    referenceInstance?.FrameOfReferenceUID || NIFTI_FRAME_OF_REFERENCE_UID;
+
+  // registerParsedVolume used the shared NIfTI frame of reference; a
+  // segmentation drawn on a DICOM series takes that series' one instead.
+  if (FrameOfReferenceUID !== NIFTI_FRAME_OF_REFERENCE_UID) {
+    registerVolumeImageIds({ ...result, frameOfReferenceUID: FrameOfReferenceUID });
+  }
 
   const fileName = displayName;
   const baseFileName = stripSegmentationSuffix(fileName);
@@ -628,41 +739,11 @@ async function addRegisteredVolumeToMetadataStore(result, displayName, options =
   const studyDate = now.toISOString().slice(0, 10).replace(/-/g, '');
   const studyTime = now.toTimeString().slice(0, 8).replace(/:/g, '');
 
-  let referencedSeriesSequence = isSegmentation ? buildReferencedSeriesSequence(options) : null;
-  let effectiveReferenceSeriesInstanceUID = options.referenceSeriesInstanceUID || null;
-
-  // A segmentation must hang on a volume. When it is imported without a
-  // resolvable reference (e.g. "No reference" in the import modal, or a link
-  // that no longer matches a loaded study), synthesize a blank companion volume
-  // from the seg's own geometry and reference it. Without this the SEG produces
-  // no display set and falls through to the unsupported-display-set handler,
-  // which makes the thumbnail un-openable ("Unsupported displaySet").
-  if (isSegmentation && !referencedSeriesSequence) {
-    const companionSeriesInstanceUID = generateUID();
-    const { instances: companionInstances } = createBlankReferenceVolume(result, {
-      StudyInstanceUID,
-      SeriesInstanceUID: companionSeriesInstanceUID,
-      FrameOfReferenceUID,
-      studyDate,
-      studyTime,
-      patientName: fileName,
-      studyDescription: `NIfTI Import - ${fileName}`,
-      seriesDescription: `${baseFileName} reference`,
-    });
-
-    // Add the companion first so its display set exists when the SEG resolves
-    // its reference (makeDisplaySets runs synchronously on INSTANCES_ADDED).
-    DicomMetadataStore.addInstances(companionInstances, true);
-
-    referencedSeriesSequence = {
-      SeriesInstanceUID: companionSeriesInstanceUID,
-      ReferencedInstanceSequence: companionInstances.map(companionInstance => ({
-        ReferencedSOPClassUID: companionInstance.SOPClassUID,
-        ReferencedSOPInstanceUID: companionInstance.SOPInstanceUID,
-      })),
-    };
-    effectiveReferenceSeriesInstanceUID = companionSeriesInstanceUID;
-  }
+  const referencedSeriesSequence = reference ? toReferencedSeriesSequence(reference.series) : null;
+  // A segmentation belongs to its reference's patient, so the viewer does not
+  // report "Multiple Patients" for a study the segmentation was added to.
+  const PatientID = referenceInstance?.PatientID || 'NIfTI-Patient';
+  const PatientName = referenceInstance?.PatientName || fileName;
 
   const instances = imageIds.map((imageId, index) => {
     const SOPInstanceUID = generateUID();
@@ -670,19 +751,13 @@ async function addRegisteredVolumeToMetadataStore(result, displayName, options =
       ? '1.2.840.10008.5.1.4.1.1.66.4'
       : '1.2.840.10008.5.1.4.1.1.2';
 
-    const ImagePositionPatient = [
-      origin[0] + index * direction[6] * spacing[2],
-      origin[1] + index * direction[7] * spacing[2],
-      origin[2] + index * direction[8] * spacing[2],
-    ];
-
     const instance = {
       StudyInstanceUID,
       SeriesInstanceUID,
       SOPInstanceUID,
       FrameOfReferenceUID,
-      PatientID: 'NIfTI-Patient',
-      PatientName: fileName,
+      PatientID,
+      PatientName,
       StudyDate: studyDate,
       StudyTime: studyTime,
       AccessionNumber: '',
@@ -704,15 +779,10 @@ async function addRegisteredVolumeToMetadataStore(result, displayName, options =
       BitsAllocated: ArrayConstructor.BYTES_PER_ELEMENT * 8,
       BitsStored: ArrayConstructor.BYTES_PER_ELEMENT * 8,
       HighBit: ArrayConstructor.BYTES_PER_ELEMENT * 8 - 1,
-      PixelRepresentation:
-        ArrayConstructor === Uint8Array ||
-        ArrayConstructor === Uint16Array ||
-        ArrayConstructor === Uint32Array
-          ? 0
-          : 1,
+      PixelRepresentation: getPixelRepresentation(ArrayConstructor),
       PlanarConfiguration: 0,
       NumberOfFrames: 1,
-      ImagePositionPatient,
+      ImagePositionPatient: getSlicePosition({ origin, direction, spacing }, index),
       ImageOrientationPatient: [
         direction[0], direction[1], direction[2],
         direction[3], direction[4], direction[5],
@@ -729,7 +799,7 @@ async function addRegisteredVolumeToMetadataStore(result, displayName, options =
 
     if (isSegmentation) {
       instance.ReferencedSeriesSequence = referencedSeriesSequence;
-      instance.referencedSeriesInstanceUID = effectiveReferenceSeriesInstanceUID;
+      instance.referencedSeriesInstanceUID = reference.series.SeriesInstanceUID;
       instance.referencedDisplaySetInstanceUID = options.referenceDisplaySetInstanceUID || null;
       instance.isDerivedDisplaySet = true;
       if (options.segmentLabels && typeof options.segmentLabels === 'object') {
@@ -767,7 +837,7 @@ export {
   addNiftiToMetadataStore,
   buildReferencedSeriesSequence,
   inferReferenceSeriesFromStudy,
-  isImageReferenceSeries,
+  readNiftiFileGeometry,
   normalizeNiftiImportKind,
   stripSegmentationSuffix,
   stripNiftiExtension,

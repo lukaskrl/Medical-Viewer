@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -23,68 +23,208 @@ import {
   normalizeLookupName,
   NIFTI_IMPORT_KINDS,
 } from './niftiUploadOptions';
+import { readNiftiFileGeometry } from './niftiFileLoader';
+import { isNrrdFile, readNrrdFileGeometry } from './nrrdFileLoader';
+import {
+  formatGeometry,
+  geometriesMatch,
+  getReferenceSeriesCandidates,
+  pickMatchingReference,
+} from './segmentationReference';
 
-const NO_REFERENCE = '__none__';
+const AUTO_REFERENCE = 'auto';
 const FILE_PREFIX = 'file:';
-const STUDY_PREFIX = 'study:';
+const SERIES_PREFIX = 'series:';
 
-type StudyOption = {
-  StudyInstanceUID: string;
+// Grid signature from segmentationReference; undefined while the header is
+// still being read, null if it could not be read.
+type Geometry = Record<string, unknown> | null | undefined;
+
+type ReferenceCandidate = {
+  StudyInstanceUID?: string;
   SeriesInstanceUID?: string;
   label: string;
+  lookupName: string;
+  isBlankCanvas: boolean;
+  geometry: Geometry;
+  // A canvas an earlier segmentation in this batch will create.
+  plannedBy?: string;
+};
+
+type Hint = {
+  tone: 'info' | 'match' | 'warning';
+  text: string;
 };
 
 type NiftiImportModalProps = {
   files: File[];
-  studies?: StudyOption[];
+  // DICOM (or other) files dropped alongside; they are imported before the
+  // NIfTI/NRRD files, so a segmentation may still match one of them.
+  hasOtherFiles?: boolean;
   onConfirm: (resolution: Map<File, Record<string, unknown>>) => void;
   onCancel: () => void;
 };
 
+const HINT_TONE_CLASSES: Record<Hint['tone'], string> = {
+  info: 'text-muted-foreground',
+  match: 'text-primary',
+  warning: 'text-yellow-500',
+};
+
+/**
+ * Describes the reference each segmentation will get, mirroring the import:
+ * loaded series first, then this batch's volumes (imported before any
+ * segmentation), then canvases created by earlier segmentations in the batch.
+ */
+function getReferenceHints(
+  entries,
+  geometries: Map<File, Geometry>,
+  loadedCandidates,
+  hasOtherFiles: boolean
+) {
+  const batchVolumes: ReferenceCandidate[] = entries
+    .filter(entry => entry.kind === NIFTI_IMPORT_KINDS.VOLUME)
+    .map(entry => ({
+      label: entry.file.name,
+      lookupName: normalizeLookupName(entry.file.name),
+      isBlankCanvas: false,
+      geometry: geometries.get(entry.file),
+    }));
+  const isReadingBatch = batchVolumes.some(volume => volume.geometry === undefined);
+  const plannedCanvases: ReferenceCandidate[] = [];
+  const hints = new Map<File, Hint>();
+
+  entries.forEach(entry => {
+    if (entry.kind !== NIFTI_IMPORT_KINDS.SEGMENTATION) {
+      return;
+    }
+
+    const geometry = geometries.get(entry.file);
+    const linkedTarget = entry.reference.startsWith(FILE_PREFIX)
+      ? batchVolumes.find(volume => `${FILE_PREFIX}${volume.label}` === entry.reference)
+      : loadedCandidates.find(
+          candidate => `${SERIES_PREFIX}${candidate.SeriesInstanceUID}` === entry.reference
+        );
+
+    if (linkedTarget) {
+      if (geometry && linkedTarget.geometry && !geometriesMatch(geometry, linkedTarget.geometry)) {
+        hints.set(entry.file, {
+          tone: 'warning',
+          text: `Grid ${formatGeometry(geometry)} differs from ${linkedTarget.label} (${formatGeometry(
+            linkedTarget.geometry
+          )}). It may not line up.`,
+        });
+      }
+      return;
+    }
+
+    if (geometry === undefined || isReadingBatch) {
+      hints.set(entry.file, { tone: 'info', text: 'Reading grid…' });
+      return;
+    }
+
+    if (geometry === null) {
+      hints.set(entry.file, { tone: 'info', text: 'Matched by grid during import.' });
+      return;
+    }
+
+    const match = pickMatchingReference(
+      [...loadedCandidates, ...batchVolumes, ...plannedCanvases],
+      geometry,
+      entry.file.name
+    );
+
+    if (match?.plannedBy) {
+      hints.set(entry.file, {
+        tone: 'match',
+        text: `Shares a new blank canvas with ${match.plannedBy}.`,
+      });
+      return;
+    }
+
+    if (match) {
+      hints.set(entry.file, {
+        tone: 'match',
+        text: match.isBlankCanvas
+          ? `Joins the existing ${match.label}.`
+          : `Same grid as ${match.label}.`,
+      });
+      return;
+    }
+
+    plannedCanvases.push({
+      label: `Blank canvas ${formatGeometry(geometry)}`,
+      lookupName: '',
+      isBlankCanvas: true,
+      geometry,
+      plannedBy: entry.file.name,
+    });
+
+    // Point out a volume that looks like the source but has another grid
+    // (e.g. a cropped segmentation), since that is the usual surprise here.
+    const lookupName = normalizeLookupName(entry.file.name);
+    const sameName = [...loadedCandidates, ...batchVolumes].find(
+      candidate => !candidate.isBlankCanvas && candidate.lookupName === lookupName
+    );
+    hints.set(
+      entry.file,
+      sameName
+        ? {
+            tone: 'warning',
+            text: `New blank canvas ${formatGeometry(geometry)}. ${sameName.label} has a different grid (${formatGeometry(
+              sameName.geometry
+            )}).`,
+          }
+        : {
+            tone: 'info',
+            text: hasOtherFiles
+              ? `New blank canvas ${formatGeometry(geometry)}, unless a DICOM series in this drop has the same grid.`
+              : `New blank canvas ${formatGeometry(geometry)}.`,
+          }
+    );
+  });
+
+  return hints;
+}
+
 /**
  * Lists every dropped NIfTI/NRRD file so the user can confirm or correct whether
- * each one is a volume or a segmentation (and, for segmentations, which
- * volume/study it belongs to) before importing.
+ * each one is a volume or a segmentation. Segmentations default to "Auto": they
+ * reference a volume with the same grid, or share a blank canvas with other
+ * segmentations on that grid. The user can still link one explicitly.
  */
-function NiftiImportModal({ files, studies = [], onConfirm, onCancel }: NiftiImportModalProps) {
-  const [entries, setEntries] = useState(() => {
-    const inferred = files.map(file => ({
+function NiftiImportModal({
+  files,
+  hasOtherFiles = false,
+  onConfirm,
+  onCancel,
+}: NiftiImportModalProps) {
+  const [entries, setEntries] = useState(() =>
+    files.map(file => ({
       file,
       kind: inferNiftiImportKind(file.name),
-      reference: NO_REFERENCE,
-    }));
+      reference: AUTO_REFERENCE,
+    }))
+  );
+  const [geometries, setGeometries] = useState<Map<File, Geometry>>(() => new Map());
+  const loadedCandidates = useMemo(() => getReferenceSeriesCandidates(), []);
 
-    const volumeNames = inferred
-      .filter(entry => entry.kind === NIFTI_IMPORT_KINDS.VOLUME)
-      .map(entry => entry.file.name);
-
-    const defaultStudyReference = studies[0]
-      ? `${STUDY_PREFIX}${studies[0].StudyInstanceUID}`
-      : NO_REFERENCE;
-
-    return inferred.map(entry => {
-      if (entry.kind !== NIFTI_IMPORT_KINDS.SEGMENTATION) {
-        return entry;
-      }
-
-      // Pre-link a segmentation to a batch volume that shares its base name.
-      const match = volumeNames.find(
-        name => normalizeLookupName(name) === normalizeLookupName(entry.file.name)
-      );
-
-      if (match) {
-        return { ...entry, reference: `${FILE_PREFIX}${match}` };
-      }
-
-      // Fall back to the first batch volume (if any), then the first loaded study.
-      const firstBatchVolume = volumeNames[0];
-      if (firstBatchVolume) {
-        return { ...entry, reference: `${FILE_PREFIX}${firstBatchVolume}` };
-      }
-
-      return { ...entry, reference: defaultStudyReference };
+  // Read each file's grid from its header so the hints can say where a
+  // segmentation will land before anything is imported.
+  useEffect(() => {
+    let cancelled = false;
+    files.forEach(file => {
+      const readGeometry = isNrrdFile(file) ? readNrrdFileGeometry : readNiftiFileGeometry;
+      readGeometry(file).then(geometry => {
+        if (!cancelled) {
+          setGeometries(prev => new Map(prev).set(file, geometry));
+        }
+      });
     });
-  });
+    return () => {
+      cancelled = true;
+    };
+  }, [files]);
 
   const volumeFileNames = useMemo(
     () =>
@@ -94,39 +234,15 @@ function NiftiImportModal({ files, studies = [], onConfirm, onCancel }: NiftiImp
     [entries]
   );
 
+  const hints = useMemo(
+    () => getReferenceHints(entries, geometries, loadedCandidates, hasOtherFiles),
+    [entries, geometries, loadedCandidates, hasOtherFiles]
+  );
+
   const setKind = (index: number, kind: string) => {
-    setEntries(prev => {
-      const updated = prev.map((entry, i) =>
-        i === index ? { ...entry, kind, reference: NO_REFERENCE } : entry
-      );
-
-      if (kind !== NIFTI_IMPORT_KINDS.SEGMENTATION) {
-        return updated;
-      }
-
-      // Compute volumes after the switch so the entry being changed is excluded.
-      const newVolumeNames = updated
-        .filter(e => e.kind === NIFTI_IMPORT_KINDS.VOLUME)
-        .map(e => e.file.name);
-
-      const fileName = prev[index].file.name;
-      const match = newVolumeNames.find(
-        name => normalizeLookupName(name) === normalizeLookupName(fileName)
-      );
-
-      let reference: string;
-      if (match) {
-        reference = `${FILE_PREFIX}${match}`;
-      } else if (newVolumeNames[0]) {
-        reference = `${FILE_PREFIX}${newVolumeNames[0]}`;
-      } else if (studies[0]) {
-        reference = `${STUDY_PREFIX}${studies[0].StudyInstanceUID}`;
-      } else {
-        reference = NO_REFERENCE;
-      }
-
-      return updated.map((entry, i) => (i === index ? { ...entry, reference } : entry));
-    });
+    setEntries(prev =>
+      prev.map((entry, i) => (i === index ? { ...entry, kind, reference: AUTO_REFERENCE } : entry))
+    );
   };
 
   const setReference = (index: number, reference: string) => {
@@ -142,22 +258,22 @@ function NiftiImportModal({ files, studies = [], onConfirm, onCancel }: NiftiImp
         return;
       }
 
+      // Without a reference the loader matches the segmentation by grid.
       const options: Record<string, unknown> = { fileKind: NIFTI_IMPORT_KINDS.SEGMENTATION };
 
-      if (entry.reference?.startsWith(FILE_PREFIX)) {
+      if (entry.reference.startsWith(FILE_PREFIX)) {
         const fileName = entry.reference.slice(FILE_PREFIX.length);
         // Only keep the link if the target is still marked as a volume.
         if (volumeFileNames.includes(fileName)) {
           options.referenceFileName = fileName;
         }
-      } else if (entry.reference?.startsWith(STUDY_PREFIX)) {
-        const studyUID = entry.reference.slice(STUDY_PREFIX.length);
-        const study = studies.find(item => item.StudyInstanceUID === studyUID);
-        if (study) {
-          options.referenceStudyInstanceUID = study.StudyInstanceUID;
-          if (study.SeriesInstanceUID) {
-            options.referenceSeriesInstanceUID = study.SeriesInstanceUID;
-          }
+      } else if (entry.reference.startsWith(SERIES_PREFIX)) {
+        const candidate = loadedCandidates.find(
+          item => `${SERIES_PREFIX}${item.SeriesInstanceUID}` === entry.reference
+        );
+        if (candidate) {
+          options.referenceStudyInstanceUID = candidate.StudyInstanceUID;
+          options.referenceSeriesInstanceUID = candidate.SeriesInstanceUID;
         }
       }
 
@@ -186,8 +302,9 @@ function NiftiImportModal({ files, studies = [], onConfirm, onCancel }: NiftiImp
             Confirm import
           </DialogTitle>
           <DialogDescription className="text-white">
-            Review the auto-detected file types. Link any segmentation to its reference volume
-            before importing.
+            Review the auto-detected file types. Each segmentation is placed on a volume with the
+            same grid. Segmentations without one share a blank canvas, so they can be viewed
+            together.
           </DialogDescription>
         </DialogHeader>
 
@@ -212,6 +329,7 @@ function NiftiImportModal({ files, studies = [], onConfirm, onCancel }: NiftiImp
             const isSegmentation = entry.kind === NIFTI_IMPORT_KINDS.SEGMENTATION;
             const referenceTargets = volumeFileNames.filter(name => name !== entry.file.name);
             const TypeIcon = isSegmentation ? Icons.LayerSegmentation : Icons.LayerForeground;
+            const hint = isSegmentation ? hints.get(entry.file) : null;
 
             return (
               <div
@@ -269,7 +387,7 @@ function NiftiImportModal({ files, studies = [], onConfirm, onCancel }: NiftiImp
                 {/* Reference selector — only shown for segmentations */}
                 {isSegmentation && (
                   <div className="ml-8 mt-2.5 flex items-center gap-2">
-                    <span className="text-muted-foreground shrink-0 text-xs">Link to volume:</span>
+                    <span className="text-muted-foreground shrink-0 text-xs">Place on:</span>
                     <Select
                       value={entry.reference}
                       onValueChange={value => setReference(index, value)}
@@ -278,7 +396,7 @@ function NiftiImportModal({ files, studies = [], onConfirm, onCancel }: NiftiImp
                         <SelectValue placeholder="Choose reference…" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NO_REFERENCE}>No reference</SelectItem>
+                        <SelectItem value={AUTO_REFERENCE}>Auto (match by grid)</SelectItem>
                         {referenceTargets.length > 0 && (
                           <>
                             <SelectSeparator />
@@ -295,17 +413,23 @@ function NiftiImportModal({ files, studies = [], onConfirm, onCancel }: NiftiImp
                             </SelectGroup>
                           </>
                         )}
-                        {studies.length > 0 && (
+                        {loadedCandidates.length > 0 && (
                           <>
                             <SelectSeparator />
                             <SelectGroup>
-                              <SelectLabel className="text-xs">Loaded studies</SelectLabel>
-                              {studies.map(study => (
+                              <SelectLabel className="text-xs">Loaded series</SelectLabel>
+                              {loadedCandidates.map(candidate => (
                                 <SelectItem
-                                  key={`${STUDY_PREFIX}${study.StudyInstanceUID}`}
-                                  value={`${STUDY_PREFIX}${study.StudyInstanceUID}`}
+                                  key={`${SERIES_PREFIX}${candidate.SeriesInstanceUID}`}
+                                  value={`${SERIES_PREFIX}${candidate.SeriesInstanceUID}`}
                                 >
-                                  {study.label}
+                                  {candidate.label}
+                                  {/* Canvas labels already carry their grid. */}
+                                  {candidate.geometry && !candidate.isBlankCanvas && (
+                                    <span className="text-muted-foreground">
+                                      {` · ${formatGeometry(candidate.geometry)}`}
+                                    </span>
+                                  )}
                                 </SelectItem>
                               ))}
                             </SelectGroup>
@@ -314,6 +438,11 @@ function NiftiImportModal({ files, studies = [], onConfirm, onCancel }: NiftiImp
                       </SelectContent>
                     </Select>
                   </div>
+                )}
+                {hint && (
+                  <p className={['ml-8 mt-1.5 text-xs', HINT_TONE_CLASSES[hint.tone]].join(' ')}>
+                    {hint.text}
+                  </p>
                 )}
               </div>
             );

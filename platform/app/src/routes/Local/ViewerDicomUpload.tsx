@@ -8,16 +8,9 @@ import { isNiftiFile } from './niftiFileLoader';
 import { isNrrdFile } from './nrrdFileLoader';
 import NiftiImportModal from './NiftiImportModal';
 
-type StudyOption = {
-  StudyInstanceUID: string;
-  SeriesInstanceUID?: string;
-  label: string;
-};
-
 type ViewerDicomUploadProps = {
   dataSource: any;
   variant?: 'modal' | 'inline';
-  getExistingStudyOptions?: () => StudyOption[];
   onUploaded?: (studyInstanceUIDs: string[]) => void;
   onClose?: () => void;
   children?: React.ReactNode;
@@ -37,7 +30,6 @@ type ViewerDicomUploadProps = {
 function ViewerDicomUpload({
   dataSource,
   variant = 'modal',
-  getExistingStudyOptions,
   onUploaded,
   onClose,
   children,
@@ -155,7 +147,9 @@ function ViewerDicomUpload({
   const niftiModal = pendingNiftiImport ? (
     <NiftiImportModal
       files={pendingNiftiImport.niftiFiles}
-      studies={getExistingStudyOptions?.() ?? []}
+      hasOtherFiles={
+        pendingNiftiImport.acceptedFiles.length > pendingNiftiImport.niftiFiles.length
+      }
       onConfirm={handleNiftiConfirm}
       onCancel={handleNiftiCancel}
     />

@@ -267,40 +267,14 @@ function extractSpatialVolume(fullData, sizes, spatialAxes) {
 }
 
 /**
- * Parse a NRRD ArrayBuffer into a normalized volume description.
- *
- * @param {ArrayBuffer} arrayBuffer raw file contents
- * @returns {{
- *   scalarData: TypedArray, columns: number, rows: number, numSlices: number,
- *   spacing: number[], direction: number[], origin: number[],
- *   ArrayConstructor: Function, keyValuePairs: Object, header: Object
- * }}
+ * Resolve the voxel grid (sizes, spatial axes) and world geometry (converted to
+ * DICOM LPS) described by a parsed NRRD header.
  */
-export function parseNrrd(arrayBuffer) {
-  const fileBytes = new Uint8Array(arrayBuffer);
-  const { headerLength, dataStart } = findHeaderEnd(fileBytes);
-
-  const headerText = new TextDecoder('utf-8').decode(fileBytes.subarray(0, headerLength));
-  const { fields, keyValuePairs } = parseHeader(headerText);
-
-  if (fields['data file'] || fields.datafile) {
-    throw new Error('NRRD: detached data files are not supported (load the single-file .nrrd).');
-  }
-
-  const type = fields.type;
-  if (!type) {
-    throw new Error('NRRD: missing required "type" field.');
-  }
-  const ArrayConstructor = getArrayConstructor(type);
-  const bytesPerElement = ArrayConstructor.BYTES_PER_ELEMENT;
-
+function resolveGeometry(fields) {
   const sizes = (fields.sizes || '').trim().split(/\s+/).map(Number);
   if (!sizes.length || sizes.some(size => !Number.isFinite(size) || size <= 0)) {
     throw new Error('NRRD: missing or invalid "sizes" field.');
   }
-
-  const encoding = (fields.encoding || 'raw').toLowerCase();
-  const endian = (fields.endian || 'little').toLowerCase();
 
   // Geometry: prefer "space directions"; fall back to axis-aligned "spacings".
   const directionEntries = fields['space directions']
@@ -317,50 +291,6 @@ export function parseNrrd(arrayBuffer) {
   // Use the first three spatial axes (collapse any extra to index 0 on extract).
   const usedSpatialAxes = spatialAxes.slice(0, 3);
 
-  // --- Decode the binary payload -------------------------------------------
-  let dataBytes = fileBytes.subarray(dataStart);
-
-  const byteSkip = parseInt(fields['byte skip'] ?? fields.byteskip ?? '0', 10) || 0;
-  if (byteSkip > 0) {
-    dataBytes = dataBytes.subarray(byteSkip);
-  }
-
-  if (encoding === 'gzip' || encoding === 'gz') {
-    dataBytes = pako.ungzip(dataBytes);
-  } else if (encoding === 'raw') {
-    // already raw
-  } else {
-    throw new Error(`NRRD: unsupported encoding "${encoding}" (only raw and gzip are supported).`);
-  }
-
-  dataBytes = byteSwap(dataBytes, endian === 'big' ? bytesPerElement : 1);
-
-  const totalElements = sizes.reduce((product, size) => product * size, 1);
-  const expectedBytes = totalElements * bytesPerElement;
-  if (dataBytes.length < expectedBytes) {
-    throw new Error(
-      `NRRD: data is smaller than expected (${dataBytes.length} < ${expectedBytes} bytes).`
-    );
-  }
-
-  // Copy into a fresh, correctly-aligned buffer before viewing as the typed type.
-  const fullData = new ArrayConstructor(totalElements);
-  new Uint8Array(fullData.buffer).set(dataBytes.subarray(0, expectedBytes));
-
-  const collapsedAxes = spatialAxes.length > 3 || sizes.length > 3;
-  if (collapsedAxes) {
-    console.warn(
-      'NRRD: file has more than 3 axes; using the first layer/component of each extra axis.'
-    );
-  }
-
-  const { scalarData, columns, rows, numSlices } = extractSpatialVolume(
-    fullData,
-    sizes,
-    usedSpatialAxes
-  );
-
-  // --- World geometry (converted to DICOM LPS) -----------------------------
   const sign = getLpsSign(fields.space);
 
   let spacing;
@@ -406,6 +336,116 @@ export function parseNrrd(arrayBuffer) {
       ]
     : [0, 0, 0];
 
+  const [ax, ay, az] = usedSpatialAxes;
+
+  return {
+    sizes,
+    spatialAxes,
+    usedSpatialAxes,
+    columns: sizes[ax],
+    rows: sizes[ay],
+    numSlices: sizes[az],
+    spacing,
+    direction,
+    origin,
+  };
+}
+
+function readHeader(fileBytes) {
+  const { headerLength, dataStart } = findHeaderEnd(fileBytes);
+  const headerText = new TextDecoder('utf-8').decode(fileBytes.subarray(0, headerLength));
+  return { ...parseHeader(headerText), dataStart };
+}
+
+/**
+ * Parse only the geometry of a NRRD file from its leading bytes (the header),
+ * without decoding the voxel data. Throws if the bytes do not contain the whole
+ * header.
+ *
+ * @param {ArrayBuffer} headBuffer the start of the file
+ * @returns {{ columns: number, rows: number, numSlices: number,
+ *   spacing: number[], direction: number[], origin: number[] }}
+ */
+export function parseNrrdGeometry(headBuffer) {
+  const { fields } = readHeader(new Uint8Array(headBuffer));
+  const { columns, rows, numSlices, spacing, direction, origin } = resolveGeometry(fields);
+  return { columns, rows, numSlices, spacing, direction, origin };
+}
+
+/**
+ * Parse a NRRD ArrayBuffer into a normalized volume description.
+ *
+ * @param {ArrayBuffer} arrayBuffer raw file contents
+ * @returns {{
+ *   scalarData: TypedArray, columns: number, rows: number, numSlices: number,
+ *   spacing: number[], direction: number[], origin: number[],
+ *   ArrayConstructor: Function, keyValuePairs: Object, header: Object
+ * }}
+ */
+export function parseNrrd(arrayBuffer) {
+  const fileBytes = new Uint8Array(arrayBuffer);
+  const { fields, keyValuePairs, dataStart } = readHeader(fileBytes);
+
+  if (fields['data file'] || fields.datafile) {
+    throw new Error('NRRD: detached data files are not supported (load the single-file .nrrd).');
+  }
+
+  const type = fields.type;
+  if (!type) {
+    throw new Error('NRRD: missing required "type" field.');
+  }
+  const ArrayConstructor = getArrayConstructor(type);
+  const bytesPerElement = ArrayConstructor.BYTES_PER_ELEMENT;
+
+  const { sizes, spatialAxes, usedSpatialAxes, spacing, direction, origin } =
+    resolveGeometry(fields);
+
+  const encoding = (fields.encoding || 'raw').toLowerCase();
+  const endian = (fields.endian || 'little').toLowerCase();
+
+  // --- Decode the binary payload -------------------------------------------
+  let dataBytes = fileBytes.subarray(dataStart);
+
+  const byteSkip = parseInt(fields['byte skip'] ?? fields.byteskip ?? '0', 10) || 0;
+  if (byteSkip > 0) {
+    dataBytes = dataBytes.subarray(byteSkip);
+  }
+
+  if (encoding === 'gzip' || encoding === 'gz') {
+    dataBytes = pako.ungzip(dataBytes);
+  } else if (encoding === 'raw') {
+    // already raw
+  } else {
+    throw new Error(`NRRD: unsupported encoding "${encoding}" (only raw and gzip are supported).`);
+  }
+
+  dataBytes = byteSwap(dataBytes, endian === 'big' ? bytesPerElement : 1);
+
+  const totalElements = sizes.reduce((product, size) => product * size, 1);
+  const expectedBytes = totalElements * bytesPerElement;
+  if (dataBytes.length < expectedBytes) {
+    throw new Error(
+      `NRRD: data is smaller than expected (${dataBytes.length} < ${expectedBytes} bytes).`
+    );
+  }
+
+  // Copy into a fresh, correctly-aligned buffer before viewing as the typed type.
+  const fullData = new ArrayConstructor(totalElements);
+  new Uint8Array(fullData.buffer).set(dataBytes.subarray(0, expectedBytes));
+
+  const collapsedAxes = spatialAxes.length > 3 || sizes.length > 3;
+  if (collapsedAxes) {
+    console.warn(
+      'NRRD: file has more than 3 axes; using the first layer/component of each extra axis.'
+    );
+  }
+
+  const { scalarData, columns, rows, numSlices } = extractSpatialVolume(
+    fullData,
+    sizes,
+    usedSpatialAxes
+  );
+
   return {
     scalarData,
     columns,
@@ -421,4 +461,4 @@ export function parseNrrd(arrayBuffer) {
 }
 
 export { isNrrdFileName };
-export default { parseNrrd, isNrrdFileName };
+export default { parseNrrd, parseNrrdGeometry, isNrrdFileName };

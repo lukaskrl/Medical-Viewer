@@ -5,7 +5,7 @@ import { DicomMetadataStore, MODULE_TYPES, useSystem } from '@ohif/core';
 
 import Dropzone from 'react-dropzone';
 import filesToStudies from './filesToStudies';
-import { isNiftiFile, isImageReferenceSeries } from './niftiFileLoader';
+import { isNiftiFile } from './niftiFileLoader';
 import { isNrrdFile } from './nrrdFileLoader';
 import NiftiImportModal from './NiftiImportModal';
 
@@ -86,35 +86,6 @@ function Local({ modePath }: LocalProps) {
   const microscopyExtensionLoaded = extensionManager.registeredExtensionIds.includes(
     '@ohif/extension-dicom-microscopy'
   );
-
-  // Existing studies in the metadata store that a segmentation can be linked to.
-  const getExistingStudyOptions = () => {
-    const studyInstanceUIDs = DicomMetadataStore.getStudyInstanceUIDs() as any[];
-    return studyInstanceUIDs.reduce((acc: any[], StudyInstanceUID) => {
-      const study = DicomMetadataStore.getStudy(StudyInstanceUID) as any;
-      if (!study) {
-        return acc;
-      }
-
-      // A segmentation can only reference an image series, never another
-      // derived overlay (SEG/RT/SR/…), so surface the first image series.
-      const referenceSeries = study.series?.find(isImageReferenceSeries);
-      if (!referenceSeries) {
-        return acc;
-      }
-      const description =
-        referenceSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
-      const seriesDescription = referenceSeries?.instances?.[0]?.SeriesDescription || '';
-
-      acc.push({
-        StudyInstanceUID,
-        SeriesInstanceUID: referenceSeries?.SeriesInstanceUID,
-        label: seriesDescription ? `${description} / ${seriesDescription}` : description,
-      });
-
-      return acc;
-    }, []);
-  };
 
   const loadStudiesAndNavigate = async (acceptedFiles, niftiOptionsByFile) => {
     setDropInitiated(true);
@@ -197,7 +168,9 @@ function Local({ modePath }: LocalProps) {
           {pendingNiftiImport && (
             <NiftiImportModal
               files={pendingNiftiImport.niftiFiles}
-              studies={getExistingStudyOptions()}
+              hasOtherFiles={
+                pendingNiftiImport.acceptedFiles.length > pendingNiftiImport.niftiFiles.length
+              }
               onConfirm={handleNiftiConfirm}
               onCancel={handleNiftiCancel}
             />

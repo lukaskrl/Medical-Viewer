@@ -2,7 +2,8 @@ import {
   registerParsedVolume,
   addRegisteredVolumeToMetadataStore,
 } from './niftiFileLoader';
-import { parseNrrd } from './nrrdParser';
+import { parseNrrd, parseNrrdGeometry } from './nrrdParser';
+import { getParsedVolumeGeometry } from './segmentationReference';
 
 /**
  * NRRD local-file loader. Parses `.nrrd` / `.seg.nrrd` files and feeds the
@@ -52,6 +53,25 @@ function parseNrrdSegmentLabels(keyValuePairs) {
   return Object.keys(labels).length ? labels : null;
 }
 
+// NRRD headers are plain text before the data; Slicer segment tables can make
+// them a few tens of KB.
+const NRRD_HEADER_READ_BYTES = 256 * 1024;
+
+/**
+ * Grid signature of a NRRD file read from its header alone, for the import
+ * modal to preview which reference a segmentation will get. Null if the header
+ * cannot be read.
+ */
+async function readNrrdFileGeometry(file) {
+  try {
+    const head = await file.slice(0, NRRD_HEADER_READ_BYTES).arrayBuffer();
+    return getParsedVolumeGeometry(parseNrrdGeometry(head));
+  } catch (error) {
+    console.warn('Could not read NRRD header geometry:', error.message);
+    return null;
+  }
+}
+
 async function addNrrdToMetadataStore(file, options = {}) {
   const arrayBuffer = await file.arrayBuffer();
   const parsed = parseNrrd(arrayBuffer);
@@ -81,5 +101,11 @@ async function addNrrdToMetadataStore(file, options = {}) {
   return addRegisteredVolumeToMetadataStore(result, stripNrrdExtension(file.name), fileOptions);
 }
 
-export { isNrrdFile, stripNrrdExtension, parseNrrdSegmentLabels, addNrrdToMetadataStore };
+export {
+  isNrrdFile,
+  stripNrrdExtension,
+  parseNrrdSegmentLabels,
+  readNrrdFileGeometry,
+  addNrrdToMetadataStore,
+};
 export default { isNrrdFile, addNrrdToMetadataStore };

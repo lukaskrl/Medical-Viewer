@@ -5,7 +5,7 @@ global.TextEncoder = global.TextEncoder || NodeTextEncoder;
 global.TextDecoder = global.TextDecoder || NodeTextDecoder;
 
 import pako from 'pako';
-import { parseNrrd } from './nrrdParser';
+import { parseNrrd, parseNrrdGeometry } from './nrrdParser';
 
 /** Assemble an in-memory NRRD ArrayBuffer from header lines + a data Uint8Array. */
 function buildNrrd(headerLines, dataBytes) {
@@ -110,5 +110,26 @@ describe('parseNrrd', () => {
       line.startsWith('encoding:') ? 'encoding: bzip2' : line
     );
     expect(() => parseNrrd(buildNrrd(header, new Uint8Array(8)))).toThrow(/unsupported encoding/i);
+  });
+});
+
+describe('parseNrrdGeometry', () => {
+  it('reads the geometry from the header alone, without the data', () => {
+    const headerOnly = buildNrrd(BASE_HEADER, new Uint8Array(0));
+
+    expect(parseNrrdGeometry(headerOnly)).toEqual({
+      columns: 2,
+      rows: 2,
+      numSlices: 2,
+      spacing: [1, 2, 3],
+      direction: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+      origin: [10, 20, 30],
+    });
+  });
+
+  it('throws when the bytes stop before the end of the header', () => {
+    const truncated = new TextEncoder().encode(BASE_HEADER.join('\n')).buffer;
+
+    expect(() => parseNrrdGeometry(truncated)).toThrow(/blank line/);
   });
 });
