@@ -1,14 +1,17 @@
 import { Enums } from '@cornerstonejs/tools';
+import { Enums as CoreEnums } from '@cornerstonejs/core';
 import i18n from '@ohif/i18n';
 import { utils } from '@ohif/ui-next';
 import { ViewportDataOverlayMenuWrapper } from './components/ViewportDataOverlaySettingMenu/ViewportDataOverlayMenuWrapper';
 import { ViewportOrientationMenuWrapper } from './components/ViewportOrientationMenu/ViewportOrientationMenuWrapper';
+import { Rotate3DViewButton } from './components/ViewportOrientationMenu/Rotate3DViewButton';
 import { WindowLevelActionMenuWrapper } from './components/WindowLevelActionMenu/WindowLevelActionMenuWrapper';
 import { CrosshairsBlendModeMenuWrapper } from './components/CrosshairsBlendModeMenu/CrosshairsBlendModeMenuWrapper';
 import { VOIManualControlMenuWrapper } from './components/VOIManualControlMenu';
 import { ThresholdMenuWrapper } from './components/ThresholdMenu/ThresholdMenuWrapper';
 import { OpacityMenuWrapper } from './components/OpacityMenu/OpacityMenuWrapper';
 import ModalityLoadBadge from './components/ModalityLoadBadge/ModalityLoadBadge';
+import { GlobalThresholdOptions } from './components/VolumeThreshold';
 import NavigationComponent from './components/NavigationComponent/NavigationComponent';
 import TrackingStatus from './components/TrackingStatus/TrackingStatus';
 import ViewportColorbarsContainer from './components/ViewportColorbar';
@@ -35,6 +38,10 @@ export default function getToolbarModule({ servicesManager, extensionManager }: 
     {
       name: 'ohif.advancedRenderingControls',
       defaultComponent: AdvancedRenderingControls,
+    },
+    {
+      name: 'ohif.globalThresholdOptions',
+      defaultComponent: GlobalThresholdOptions,
     },
     {
       name: 'evaluate.advancedRenderingControls',
@@ -202,6 +209,23 @@ export default function getToolbarModule({ servicesManager, extensionManager }: 
     {
       name: 'ohif.orientationMenu',
       defaultComponent: ViewportOrientationMenuWrapper,
+    },
+    {
+      name: 'ohif.rotate3DMenu',
+      defaultComponent: Rotate3DViewButton,
+    },
+    {
+      name: 'evaluate.rotate3DMenu',
+      evaluate: ({ viewportId }) => {
+        // Only relevant for 3D (volume render) viewports; the button itself
+        // renders nothing on other viewport types.
+        const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+        const is3D = viewport?.type === CoreEnums.ViewportType.VOLUME_3D;
+
+        return {
+          disabled: !is3D,
+        };
+      },
     },
     {
       name: 'evaluate.orientationMenu',

@@ -9,6 +9,7 @@ import {
   BaseVolumeViewport,
   getRenderingEngines,
   CONSTANTS as CoreConstants,
+  cache,
 } from '@cornerstonejs/core';
 import {
   ToolGroupManager,
@@ -33,7 +34,6 @@ import {
   callInputDialogAutoComplete,
   createReportAsync,
   colorPickerDialog,
-  opacitySliderDialog,
   callInputDialog,
 } from '@ohif/extension-default';
 import { vec3, mat4 } from 'gl-matrix';
@@ -55,6 +55,7 @@ import { getUpdatedViewportsForSegmentation } from './utils/hydrationUtils';
 import { SegmentationRepresentations } from '@cornerstonejs/tools/enums';
 import { isMeasurementWithinViewport } from './utils/isMeasurementWithinViewport';
 import { getCenterExtent } from './utils/getCenterExtent';
+import { toggleModelRotation } from './utils/viewport3DModelRotation';
 import { getMeasurementWorldPoint } from './utils/getMeasurementWorldPoint';
 import { EasingFunctionEnum } from './utils/transitions';
 import { createSegmentationForViewport } from './utils/createSegmentationForViewport';
@@ -71,6 +72,7 @@ const toggleSyncFunctions = {
 };
 
 const { segmentation: segmentationUtils } = cstUtils;
+const { triggerSegmentationDataModified } = cornerstoneTools.segmentation.triggerSegmentationEvents;
 
 const getLabelmapTools = ({ toolGroupService }) => {
   const labelmapTools = [];
@@ -295,6 +297,53 @@ function commandsModule({
     viewport.render();
 
     return true;
+  };
+
+  // Holds the committed labelmap snapshot while the Global Threshold tool shows a live
+  // preview, so dragging the range re-previews from the committed baseline and Apply / tool
+  // change can commit or discard it. Keyed by segmentationId.
+  let _volumeThresholdPreview: { segmentationId: string; baseline: ArrayLike<number> } | null = null;
+
+  /**
+   * Resolves the pieces needed to threshold the active volume into the active segment:
+   * the segmentation id, active segment index, the labelmap voxel manager (write target) and
+   * the source intensity scalar data (read source). Returns null when not applicable.
+   */
+  const resolveVolumeThresholdContext = () => {
+    const viewportId = viewportGridService.getActiveViewportId();
+    const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+
+    if (!(viewport instanceof BaseVolumeViewport)) {
+      return null;
+    }
+
+    const activeSegmentation = segmentationService.getActiveSegmentation(viewportId);
+    const activeSegment = segmentationService.getActiveSegment(viewportId);
+
+    if (!activeSegmentation || !activeSegment?.segmentIndex) {
+      return null;
+    }
+
+    const labelmapData = activeSegmentation.representationData.Labelmap as { volumeId?: string };
+
+    if (!labelmapData?.volumeId) {
+      return null;
+    }
+
+    const sourceVolumeId = viewport.getAllVolumeIds().find(id => id !== labelmapData.volumeId);
+    const labelmapVolume = cache.getVolume(labelmapData.volumeId);
+    const sourceVolume = sourceVolumeId ? cache.getVolume(sourceVolumeId) : null;
+
+    if (!labelmapVolume || !sourceVolume) {
+      return null;
+    }
+
+    return {
+      segmentationId: activeSegmentation.segmentationId,
+      segmentIndex: activeSegment.segmentIndex,
+      labelmapVoxelManager: labelmapVolume.voxelManager,
+      sourceData: sourceVolume.voxelManager.getCompleteScalarDataArray(),
+    };
   };
 
   const actions = {
@@ -1448,6 +1497,20 @@ function commandsModule({
       });
       viewport.render();
     },
+    /**
+     * Toggles a continuous left/right tilt animation on a 3D (volume render)
+     * viewport. The camera orbits ±45° around the view's vertical axis in a
+     * smooth pendulum motion. Returns the new state (`true` if now rotating).
+     */
+    toggle3DModelRotation: ({ viewportId }: { viewportId?: string } = {}) => {
+      const targetViewportId = viewportId ?? viewportGridService.getActiveViewportId();
+
+      if (!targetViewportId) {
+        return false;
+      }
+
+      return toggleModelRotation(targetViewportId, cornerstoneViewportService);
+    },
     scaleViewport: ({ direction }) => {
       const enabledElement = _getActiveViewportEnabledElement();
       const scaleFactor = direction > 0 ? 0.9 : 1.1;
@@ -2167,26 +2230,6 @@ function commandsModule({
       });
     },
 
-    editSegmentOpacity: ({ segmentationId, segmentIndex }) => {
-      const { segmentationService, uiDialogService } = servicesManager.services;
-      const currentOpacity = segmentationService.getSegmentOpacity(segmentationId, segmentIndex);
-
-      uiDialogService.show({
-        content: opacitySliderDialog,
-        title: i18n.t('Tools:Segment Opacity'),
-        contentProps: {
-          value: currentOpacity,
-          // Live preview while dragging the slider.
-          onChange: (newOpacity: number) => {
-            segmentationService.setSegmentOpacity(segmentationId, segmentIndex, newOpacity);
-          },
-          onSave: (newOpacity: number) => {
-            segmentationService.setSegmentOpacity(segmentationId, segmentIndex, newOpacity);
-          },
-        },
-      });
-    },
-
     getRenderInactiveSegmentations: () => {
       const { segmentationService, viewportGridService } = servicesManager.services;
       return segmentationService.getRenderInactiveSegmentations(
@@ -2410,6 +2453,11 @@ function commandsModule({
       for (const toolGroupId of toolGroupIds) {
         const toolGroup = toolGroupService.getToolGroup(toolGroupId);
         toolNames?.forEach(toolName => {
+          // Skip tool groups that don't have the threshold tool (e.g. SR / 3D groups),
+          // otherwise setToolConfiguration logs a noisy "tool not present" warning.
+          if (!toolGroup?.hasTool(toolName)) {
+            return;
+          }
           toolGroup.setToolConfiguration(toolName, {
             threshold: {
               range: value,
@@ -2417,6 +2465,87 @@ function commandsModule({
           });
         });
       }
+    },
+    /**
+     * Live, non-destructive preview of thresholding the entire source volume into the
+     * active segment. The committed labelmap is snapshotted once (per segmentation) as a
+     * baseline; each call re-applies the threshold on top of that baseline, so dragging the
+     * range slider always previews against the original committed state. Every voxel whose
+     * intensity is within [lower, upper] is added to the active segment, but only where the
+     * baseline labelmap is background (0), preserving existing/other segments.
+     */
+    previewVolumeThreshold: ({ range }: { range: [number, number] }) => {
+      const [lower, upper] = range ?? [];
+      if (lower == null || upper == null) {
+        return;
+      }
+
+      const ctx = resolveVolumeThresholdContext();
+      if (!ctx) {
+        return;
+      }
+
+      const { segmentationId, segmentIndex, labelmapVoxelManager, sourceData } = ctx;
+
+      // Capture the committed baseline the first time we preview this segmentation.
+      if (!_volumeThresholdPreview || _volumeThresholdPreview.segmentationId !== segmentationId) {
+        _volumeThresholdPreview = {
+          segmentationId,
+          baseline: labelmapVoxelManager.getCompleteScalarDataArray().slice(),
+        };
+      }
+
+      const { baseline } = _volumeThresholdPreview;
+      const working = baseline.slice();
+      for (let i = 0; i < sourceData.length; i++) {
+        const value = sourceData[i];
+        if (value >= lower && value <= upper && working[i] === 0) {
+          working[i] = segmentIndex;
+        }
+      }
+
+      labelmapVoxelManager.setCompleteScalarDataArray(working);
+      triggerSegmentationDataModified(segmentationId);
+    },
+
+    /**
+     * Commits the current Global Threshold preview into the active segment by adopting the
+     * previewed labelmap as the new committed baseline (so further dragging previews on top
+     * of it, and a later discard won't undo it).
+     */
+    acceptVolumeThreshold: () => {
+      if (!_volumeThresholdPreview) {
+        return false;
+      }
+
+      const ctx = resolveVolumeThresholdContext();
+      if (ctx && ctx.segmentationId === _volumeThresholdPreview.segmentationId) {
+        _volumeThresholdPreview.baseline = ctx.labelmapVoxelManager
+          .getCompleteScalarDataArray()
+          .slice();
+        return true;
+      }
+
+      _volumeThresholdPreview = null;
+      return false;
+    },
+
+    /**
+     * Discards any uncommitted Global Threshold preview, restoring the labelmap to the last
+     * committed baseline. Called when the tool/panel is dismissed.
+     */
+    clearVolumeThresholdPreview: () => {
+      if (!_volumeThresholdPreview) {
+        return;
+      }
+
+      const ctx = resolveVolumeThresholdContext();
+      if (ctx && ctx.segmentationId === _volumeThresholdPreview.segmentationId) {
+        ctx.labelmapVoxelManager.setCompleteScalarDataArray(_volumeThresholdPreview.baseline);
+        triggerSegmentationDataModified(_volumeThresholdPreview.segmentationId);
+      }
+
+      _volumeThresholdPreview = null;
     },
     increaseBrushSize: () => {
       _handleBrushSizeAction('increase');
@@ -2831,6 +2960,9 @@ function commandsModule({
     center3DViewport: {
       commandFn: actions.center3DViewport,
     },
+    toggle3DModelRotation: {
+      commandFn: actions.toggle3DModelRotation,
+    },
     setMeasurementLabel: {
       commandFn: actions.setMeasurementLabel,
     },
@@ -3085,9 +3217,6 @@ function commandsModule({
     editSegmentColor: {
       commandFn: actions.editSegmentColor,
     },
-    editSegmentOpacity: {
-      commandFn: actions.editSegmentOpacity,
-    },
     getRenderInactiveSegmentations: {
       commandFn: actions.getRenderInactiveSegmentations,
     },
@@ -3110,6 +3239,9 @@ function commandsModule({
     clearMarkersForMarkerLabelmap: actions.clearMarkersForMarkerLabelmap,
     setBrushSize: actions.setBrushSize,
     setThresholdRange: actions.setThresholdRange,
+    previewVolumeThreshold: actions.previewVolumeThreshold,
+    acceptVolumeThreshold: actions.acceptVolumeThreshold,
+    clearVolumeThresholdPreview: actions.clearVolumeThresholdPreview,
     increaseBrushSize: actions.increaseBrushSize,
     decreaseBrushSize: actions.decreaseBrushSize,
     addNewSegment: actions.addNewSegment,

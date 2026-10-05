@@ -1,8 +1,45 @@
 import type { Button } from '@ohif/core/types';
 
+import React from 'react';
 import { EVENTS } from '@cornerstonejs/core';
 import { ViewportGridService } from '@ohif/core';
+import { VolumeThresholdRange } from '@ohif/extension-cornerstone';
 import i18n from 'i18next';
+import { MIN_SEGMENTATION_DRAWING_RADIUS, MAX_SEGMENTATION_DRAWING_RADIUS } from './constants';
+
+// All brush variants (plain + threshold) the unified Brush tool can activate.
+const BRUSH_TOOL_NAMES = [
+  'CircularBrush',
+  'SphereBrush',
+  'ThresholdCircularBrush',
+  'ThresholdSphereBrush',
+  'ThresholdCircularBrushDynamic',
+  'ThresholdSphereBrushDynamic',
+];
+
+const getOptionValue = (options, id: string, fallback: string) =>
+  options?.find(option => option.id === id)?.value ?? fallback;
+
+// Resolves the cornerstone tool variant from the Brush button's shape + threshold-mode state.
+const resolveBrushToolName = (shape: string, thresholdMode: string) => {
+  const isSphere = shape === 'SphereBrush';
+  if (thresholdMode === 'Dynamic') {
+    return isSphere ? 'ThresholdSphereBrushDynamic' : 'ThresholdCircularBrushDynamic';
+  }
+  if (thresholdMode === 'Range') {
+    return isSphere ? 'ThresholdSphereBrush' : 'ThresholdCircularBrush';
+  }
+  return isSphere ? 'SphereBrush' : 'CircularBrush';
+};
+
+// Runs on Brush button click and whenever the shape / threshold-mode option changes.
+const activateBrushTool = ({ commandsManager, options }) => {
+  const shape = getOptionValue(options, 'brush-shape', 'CircularBrush');
+  const thresholdMode = getOptionValue(options, 'brush-threshold-mode', 'Off');
+  commandsManager.run('setToolActiveToolbar', {
+    toolName: resolveBrushToolName(shape, thresholdMode),
+  });
+};
 
 const callbacks = (toolName: string) => [
   {
@@ -107,6 +144,19 @@ const toolbarButtons: Button[] = [
       evaluate: {
         name: 'evaluate.orientationMenu',
         // hideWhenDisabled: true,
+      },
+    },
+  },
+  {
+    id: 'rotate3DMenu',
+    uiType: 'ohif.rotate3DMenu',
+    props: {
+      icon: 'Tool3DRotate',
+      label: i18n.t('Buttons:Tilt model'),
+      tooltip: i18n.t('Buttons:Continuously tilt the 3D model left and right'),
+      evaluate: {
+        name: 'evaluate.rotate3DMenu',
+        hideWhenDisabled: true,
       },
     },
   },
@@ -710,6 +760,114 @@ const toolbarButtons: Button[] = [
   //     evaluate: 'evaluate.action',
   //   },
   // },
+  {
+    id: 'Brush',
+    uiType: 'ohif.toolBoxButton',
+    props: {
+      icon: 'icon-tool-brush',
+      label: i18n.t('Buttons:Brush'),
+      evaluate: [
+        {
+          name: 'evaluate.cornerstone.segmentation',
+          toolNames: BRUSH_TOOL_NAMES,
+          disabledText: i18n.t('Buttons:Create new segmentation to enable this tool.'),
+        },
+        {
+          name: 'evaluate.cornerstone.segmentation.synchronizeDrawingRadius',
+          radiusOptionId: 'brush-radius',
+        },
+        {
+          name: 'evaluate.cornerstone.hasSegmentationOfType',
+          segmentationRepresentationType: 'Labelmap',
+        },
+      ],
+      commands: {
+        commandName: 'activateSelectedSegmentationOfType',
+        commandOptions: {
+          segmentationRepresentationType: 'Labelmap',
+        },
+      },
+      options: [
+        {
+          name: i18n.t('Buttons:Radius (mm)'),
+          id: 'brush-radius',
+          type: 'range',
+          explicitRunOnly: true,
+          min: MIN_SEGMENTATION_DRAWING_RADIUS,
+          max: MAX_SEGMENTATION_DRAWING_RADIUS,
+          step: 0.5,
+          value: 25,
+          commands: {
+            commandName: 'setBrushSize',
+            commandOptions: { toolNames: BRUSH_TOOL_NAMES },
+          },
+        },
+        {
+          name: i18n.t('Buttons:Shape'),
+          type: 'radio',
+          id: 'brush-shape',
+          value: 'CircularBrush',
+          values: [
+            { value: 'CircularBrush', label: i18n.t('Buttons:Circle') },
+            { value: 'SphereBrush', label: i18n.t('Buttons:Sphere') },
+          ],
+          commands: activateBrushTool,
+        },
+        {
+          name: i18n.t('Buttons:Threshold'),
+          type: 'radio',
+          id: 'brush-threshold-mode',
+          value: 'Off',
+          values: [
+            { value: 'Off', label: i18n.t('Buttons:Off') },
+            { value: 'Dynamic', label: i18n.t('Buttons:Dynamic') },
+            { value: 'Range', label: i18n.t('Buttons:Range') },
+          ],
+          commands: activateBrushTool,
+        },
+        {
+          name: i18n.t('Buttons:Threshold Range'),
+          id: 'brush-threshold-range',
+          type: 'custom',
+          condition: ({ options }) =>
+            getOptionValue(options, 'brush-threshold-mode', 'Off') === 'Range',
+          children: () => React.createElement(VolumeThresholdRange, { mode: 'brush' }),
+        },
+      ],
+    },
+  },
+  {
+    id: 'Threshold',
+    uiType: 'ohif.toolBoxButton',
+    props: {
+      icon: 'icon-tool-threshold',
+      label: i18n.t('Buttons:Global Threshold'),
+      evaluate: [
+        {
+          name: 'evaluate.cornerstone.segmentation',
+          toolNames: ['GlobalThreshold'],
+          disabledText: i18n.t('Buttons:Create new segmentation to enable this tool.'),
+        },
+        {
+          name: 'evaluate.cornerstone.hasSegmentationOfType',
+          segmentationRepresentationType: 'Labelmap',
+        },
+      ],
+      commands: [
+        {
+          commandName: 'activateSelectedSegmentationOfType',
+          commandOptions: {
+            segmentationRepresentationType: 'Labelmap',
+          },
+        },
+        {
+          commandName: 'setToolActiveToolbar',
+          commandOptions: { toolName: 'GlobalThreshold' },
+        },
+      ],
+      options: 'ohif.globalThresholdOptions',
+    },
+  },
 ];
 
 export default toolbarButtons;

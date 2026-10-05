@@ -95,6 +95,19 @@ export const toolbarButtons: Button[] = [
     },
   },
   {
+    id: 'rotate3DMenu',
+    uiType: 'ohif.rotate3DMenu',
+    props: {
+      icon: 'Tool3DRotate',
+      label: i18n.t('Buttons:Tilt model'),
+      tooltip: i18n.t('Buttons:Continuously tilt the 3D model left and right'),
+      evaluate: {
+        name: 'evaluate.rotate3DMenu',
+        hideWhenDisabled: true,
+      },
+    },
+  },
+  {
     id: 'windowLevelMenuEmbedded',
     uiType: 'ohif.windowLevelMenuEmbedded',
     props: {
@@ -786,6 +799,37 @@ export const toolbarButtons: Button[] = [
         {
           name: 'evaluate.cornerstone.segmentation',
           toolNames: ['RegionSegmentPlus'],
+          disabledText: i18n.t('Buttons:Create new segmentation to enable this tool.'),
+        },
+        {
+          name: 'evaluate.cornerstone.hasSegmentationOfType',
+          segmentationRepresentationType: 'Labelmap',
+        },
+      ],
+      commands: [
+        'setToolActiveToolbar',
+        {
+          commandName: 'activateSelectedSegmentationOfType',
+          commandOptions: {
+            segmentationRepresentationType: 'Labelmap',
+          },
+        },
+      ],
+    },
+  },
+  {
+    id: 'RemoveIsland',
+    uiType: 'ohif.toolBoxButton',
+    props: {
+      icon: 'tool-seg-eraser',
+      label: i18n.t('Buttons:Remove Island'),
+      tooltip: i18n.t(
+        'Buttons:Click inside a segment region to delete that entire connected island (3D).'
+      ),
+      evaluate: [
+        {
+          name: 'evaluate.cornerstone.segmentation',
+          toolNames: ['RemoveIsland'],
           disabledText: i18n.t('Buttons:Create new segmentation to enable this tool.'),
         },
         {

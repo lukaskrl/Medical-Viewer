@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '../../components/Button/Button';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from '../../components/DropdownMenu';
+import { Slider } from '../../components/Slider/Slider';
 import { Icons } from '../../components/Icons/Icons';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../../components/Tooltip/Tooltip';
 import { cn } from '../../lib/utils';
@@ -107,7 +109,10 @@ interface DataRowProps {
   //
   colorHex?: string;
   onColor: (e) => void;
-  onOpacity?: (e) => void;
+  /** Current opacity (0..1) of the row's item. When `onOpacityChange` is provided,
+   * an inline opacity slider is rendered directly inside the actions dropdown. */
+  opacity?: number;
+  onOpacityChange?: (value: number) => void;
   onCopy?: (e) => void;
   className?: string;
   children?: React.ReactNode;
@@ -127,7 +132,8 @@ const DataRowComponent = React.forwardRef<HTMLDivElement, DataRowProps>(
       onRename,
       onDelete,
       onColor,
-      onOpacity,
+      opacity,
+      onOpacityChange,
       onCopy,
       isSelected = false,
       isSecondarySelected = false,
@@ -141,6 +147,13 @@ const DataRowComponent = React.forwardRef<HTMLDivElement, DataRowProps>(
     const { t } = useTranslation('DataRow');
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const isTitleLong = title?.length > 25;
+
+    // Local state backing the inline opacity slider so dragging stays responsive.
+    // Kept in sync with the `opacity` prop (the source of truth) whenever it changes.
+    const [opacityValue, setOpacityValue] = useState(opacity ?? 1);
+    useEffect(() => {
+      setOpacityValue(opacity ?? 1);
+    }, [opacity]);
 
     // Extract Status components from children
     const statusComponents = React.Children.toArray(children).filter(
@@ -167,9 +180,6 @@ const DataRowComponent = React.forwardRef<HTMLDivElement, DataRowProps>(
           break;
         case 'Color':
           onColor(e);
-          break;
-        case 'Opacity':
-          onOpacity?.(e);
           break;
       }
     };
@@ -405,17 +415,6 @@ const DataRowComponent = React.forwardRef<HTMLDivElement, DataRowProps>(
                         </span>
                       </DropdownMenuItem>
                     )}
-                    {onOpacity && (
-                      <DropdownMenuItem onClick={e => handleAction('Opacity', e)}>
-                        <Icons.Hide className="text-foreground" />
-                        <span
-                          className="pl-2"
-                          data-cy="Change Opacity"
-                        >
-                          {t('Change Opacity')}
-                        </span>
-                      </DropdownMenuItem>
-                    )}
                     <DropdownMenuItem onClick={e => handleAction('Lock', e)}>
                       <Icons.Lock className="text-foreground" />
                       <span
@@ -425,6 +424,38 @@ const DataRowComponent = React.forwardRef<HTMLDivElement, DataRowProps>(
                         {isLocked ? t('Unlock') : t('Lock')}
                       </span>
                     </DropdownMenuItem>
+                    {onOpacityChange && (
+                      <>
+                        <DropdownMenuSeparator />
+                        {/* Inline opacity slider. Rendered as plain content (not a menu
+                            item) and with event propagation stopped so dragging the
+                            slider doesn't trigger menu navigation or close the dropdown. */}
+                        <div
+                          className="w-44 px-2 py-1.5"
+                          data-cy="Change Opacity"
+                          onClick={e => e.stopPropagation()}
+                          onPointerDown={e => e.stopPropagation()}
+                          onKeyDown={e => e.stopPropagation()}
+                        >
+                          <div className="mb-1.5 flex items-center justify-between">
+                            <span className="text-muted-foreground text-sm">{t('Opacity')}</span>
+                            <span className="text-muted-foreground text-sm tabular-nums">
+                              {Math.round(opacityValue * 100)}%
+                            </span>
+                          </div>
+                          <Slider
+                            min={0}
+                            max={1}
+                            step={0.01}
+                            value={[opacityValue]}
+                            onValueChange={([next]) => {
+                              setOpacityValue(next);
+                              onOpacityChange(next);
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
                   </>
                 </DropdownMenuContent>
               </DropdownMenu>

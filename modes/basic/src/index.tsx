@@ -13,14 +13,15 @@ const segmentationToolbarButtonIds = new Set([
   'BrushTools',
   'LabelMapUtilities',
   'LabelMapTools',
-  'Brush',
+  // 'Brush' and 'Threshold' are intentionally omitted: basic mode defines its own
+  // Brush (with an inline threshold toggle) and Global Threshold buttons in toolbarButtons.ts.
   'InterpolateLabelmap',
   'SegmentBidirectional',
   'RegionSegmentPlus',
+  'RemoveIsland',
   'LabelmapSlicePropagation',
   'MarkerLabelmap',
   'Eraser',
-  'Threshold',
   'Shapes',
   'LabelMapEditWithContour',
   'ContourTools',
@@ -207,6 +208,7 @@ export function onModeEnter({
     'BrushTools',
     'MarkerLabelmap',
     'RegionSegmentPlus',
+    'RemoveIsland',
     'Shapes',
     'LabelMapEditWithContour',
   ]);
@@ -303,7 +305,11 @@ export const toolbarSections = {
     'MoreTools',
   ],
 
-  [TOOLBAR_SECTIONS.viewportActionMenu.topLeft]: ['orientationMenu', 'dataOverlayMenu'],
+  [TOOLBAR_SECTIONS.viewportActionMenu.topLeft]: [
+    'orientationMenu',
+    'rotate3DMenu',
+    'dataOverlayMenu',
+  ],
 
   [TOOLBAR_SECTIONS.viewportActionMenu.bottomMiddle]: ['AdvancedRenderingControls'],
 
@@ -365,6 +371,7 @@ export const toolbarSections = {
     'BrushTools',
     'MarkerLabelmap',
     'RegionSegmentPlus',
+    'RemoveIsland',
     'Shapes',
     'LabelMapEditWithContour',
   ],

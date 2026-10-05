@@ -457,19 +457,45 @@ function PanelStudyBrowser({
   const activeDisplaySetInstanceUIDs = viewports.get(activeViewportId)?.displaySetInstanceUIDs;
 
   const getExistingStudyOptionsForUpload = useCallback(() => {
+    // A segmentation can only hang on an image series, never on a derived
+    // overlay (SEG/RT/SR/…). Surface the first *image* series as the study's
+    // reference target so linking a new seg to this study doesn't point it at
+    // an existing segmentation.
+    const NON_IMAGE_MODALITIES = new Set([
+      'SEG',
+      'RTSTRUCT',
+      'RTPLAN',
+      'RTDOSE',
+      'SR',
+      'KO',
+      'PR',
+      'PMAP',
+      'REG',
+      'DOC',
+    ]);
+    const isImageSeries = (series: any) => {
+      const modality = series?.instances?.[0]?.Modality || series?.Modality;
+      return !!modality && !NON_IMAGE_MODALITIES.has(modality);
+    };
+
     const uids = DicomMetadataStore.getStudyInstanceUIDs() as string[];
     return uids.reduce((acc: any[], StudyInstanceUID) => {
       const study = DicomMetadataStore.getStudy(StudyInstanceUID) as any;
       if (!study) {
         return acc;
       }
-      const firstSeries = study.series?.[0];
+      const referenceSeries = study.series?.find(isImageSeries);
+      if (!referenceSeries) {
+        // Study has no image series to reference (e.g. seg-only). Skip it so a
+        // new segmentation falls back to synthesizing its own blank volume.
+        return acc;
+      }
       const description =
-        firstSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
-      const seriesDescription = firstSeries?.instances?.[0]?.SeriesDescription || '';
+        referenceSeries?.instances?.[0]?.StudyDescription || study.description || StudyInstanceUID;
+      const seriesDescription = referenceSeries?.instances?.[0]?.SeriesDescription || '';
       acc.push({
         StudyInstanceUID,
-        SeriesInstanceUID: firstSeries?.SeriesInstanceUID,
+        SeriesInstanceUID: referenceSeries?.SeriesInstanceUID,
         label: seriesDescription ? `${description} / ${seriesDescription}` : description,
       });
       return acc;

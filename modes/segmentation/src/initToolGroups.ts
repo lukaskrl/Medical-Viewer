@@ -48,6 +48,9 @@ function createTools({ utilityModule, commandsManager }) {
         toolName: toolNames.RegionSegmentPlus,
       },
       {
+        toolName: toolNames.RemoveIsland,
+      },
+      {
         toolName: 'CircularEraser',
         parentTool: 'Brush',
         configuration: {

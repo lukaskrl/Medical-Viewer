@@ -28,7 +28,6 @@ import { useToggleHangingProtocolStore } from './stores/useToggleHangingProtocol
 import { useToggleOneUpViewportGridStore } from './stores/useToggleOneUpViewportGridStore';
 import { callInputDialogAutoComplete, callInputDialog } from './utils/callInputDialog';
 import colorPickerDialog from './utils/colorPickerDialog';
-import opacitySliderDialog from './utils/opacitySliderDialog';
 
 import promptSaveReport from './utils/promptSaveReport';
 import promptLabelAnnotation from './utils/promptLabelAnnotation';
@@ -98,7 +97,6 @@ export {
   promptSaveReport,
   promptLabelAnnotation,
   colorPickerDialog,
-  opacitySliderDialog,
   usePatientInfo,
   PanelStudyBrowserHeader,
   utils,

@@ -1273,7 +1273,10 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
         const referenceDisplaySet = displaySetService.getDisplaySetByUID(
           overlayDisplaySet.referencedDisplaySetInstanceUID
         );
-        imageIds = referenceDisplaySet.images.map(image => image.imageId);
+        // An overlay (SEG/RT) must reference an image display set. Guard against a
+        // reference that resolves to something without images (e.g. another
+        // overlay) so the viewport degrades gracefully instead of crashing.
+        imageIds = referenceDisplaySet?.images?.map(image => image.imageId);
       }
       return {
         imageIds,

@@ -56,6 +56,7 @@ function modeFactory({ modeConfiguration }) {
 
       toolbarService.updateSection(toolbarService.sections.viewportActionMenu.topLeft, [
         'orientationMenu',
+        'rotate3DMenu',
         'dataOverlayMenu',
       ]);
 
@@ -107,6 +108,7 @@ function modeFactory({ modeConfiguration }) {
         'BrushTools',
         'MarkerLabelmap',
         'RegionSegmentPlus',
+        'RemoveIsland',
         'Shapes',
         'LabelMapEditWithContour',
       ]);

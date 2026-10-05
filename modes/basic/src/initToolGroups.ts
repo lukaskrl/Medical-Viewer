@@ -36,6 +36,12 @@ function getLabelMapSegmentationTools(toolNames) {
       toolName: toolNames.RegionSegmentPlus,
     },
     {
+      toolName: toolNames.RemoveIsland,
+    },
+    {
+      toolName: toolNames.GlobalThreshold,
+    },
+    {
       toolName: 'CircularEraser',
       parentTool: 'Brush',
       configuration: {

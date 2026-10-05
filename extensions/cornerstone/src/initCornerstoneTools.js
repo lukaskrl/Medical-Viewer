@@ -55,6 +55,8 @@ import { getLabelmapActorEntries } from '@cornerstonejs/tools/segmentation/helpe
 
 import CalibrationLineTool from './tools/CalibrationLineTool';
 import ImageOverlayViewerTool from './tools/ImageOverlayViewerTool';
+import RemoveIslandTool from './tools/RemoveIslandTool';
+import GlobalThresholdTool from './tools/GlobalThresholdTool';
 import {
   throttledComputeSurfaceData,
   throttledUpdateSurfaceData,
@@ -396,6 +398,8 @@ export default function initCornerstoneTools() {
   addTool(LabelmapSlicePropagationTool);
   addTool(MarkerLabelmapTool);
   addTool(RegionSegmentPlusTool);
+  addTool(RemoveIslandTool);
+  addTool(GlobalThresholdTool);
   addTool(LivewireContourSegmentationTool);
   addTool(SculptorTool);
   addTool(SplineContourSegmentationTool);
@@ -459,6 +463,8 @@ const toolNames = {
   LabelmapSlicePropagation: LabelmapSlicePropagationTool.toolName,
   MarkerLabelmap: MarkerLabelmapTool.toolName,
   RegionSegmentPlus: RegionSegmentPlusTool.toolName,
+  RemoveIsland: RemoveIslandTool.toolName,
+  GlobalThreshold: GlobalThresholdTool.toolName,
   LivewireContourSegmentation: LivewireContourSegmentationTool.toolName,
   SculptorTool: SculptorTool.toolName,
   SplineContourSegmentation: SplineContourSegmentationTool.toolName,
