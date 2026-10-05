@@ -6,6 +6,7 @@ import { adaptersSEG, Enums } from '@cornerstonejs/adapters';
 
 import { SOPClassHandlerId } from './id';
 import { dicomlabToRGB } from './utils/dicomlabToRGB';
+import { pairSlicesByPosition } from './utils/pairSlicesByPosition';
 
 const sopClassUids = ['1.2.840.10008.5.1.4.1.1.66.4', '1.2.840.10008.5.1.4.1.1.66.7'];
 
@@ -47,6 +48,11 @@ async function _loadNiftiSegments({ segDisplaySet, servicesManager }) {
     segImageIds.map(imageId => imageLoader.loadAndCacheImage(imageId))
   );
 
+  const referencedIndices = pairSlicesByPosition(
+    segImageIds.map(imageId => metaData.get('imagePlaneModule', imageId)),
+    referencedImageIds.map(imageId => metaData.get('imagePlaneModule', imageId))
+  );
+
   const segmentsOnLabelmap = new Set<number>();
 
   // Accumulators for per-segment centroids, keyed by segment index. These are
@@ -68,8 +74,9 @@ async function _loadNiftiSegments({ segDisplaySet, servicesManager }) {
   const labelMapImages = segImages.map((image, index) => {
     const scalarData = image.voxelManager?.getScalarData?.() || image.getPixelData?.() || [];
 
-    const referencedImageId =
-      referencedImageIds[index] || referencedImageIds[referencedImageIds.length - 1];
+    const referencedImageId = referencedIndices
+      ? referencedImageIds[referencedIndices[index]]
+      : referencedImageIds[index] || referencedImageIds[referencedImageIds.length - 1];
 
     if (!referencedImageId) {
       throw new Error('NIfTI SEG loading failed: unable to resolve referenced imageId');
