@@ -473,6 +473,18 @@ function ensureLoaderRegistered() {
     console.warn('NIfTI image loader registration:', e.message);
     loaderRegistered = true;
   }
+
+  DicomMetadataStore.subscribe(DicomMetadataStore.EVENTS.SERIES_REMOVED, releaseRemovedSeries);
+}
+
+// Frees the pixel data of a NIfTI / NRRD series removed from the viewer.
+function releaseRemovedSeries({ series }) {
+  series?.instances?.forEach(instance => {
+    const imageId = instance.imageId || instance.url;
+    if (typeof imageId === 'string' && imageId.startsWith('nifti:')) {
+      niftiDataStore.delete(imageId.slice('nifti:'.length).split('?frame=')[0]);
+    }
+  });
 }
 
 function isNiftiFile(file) {

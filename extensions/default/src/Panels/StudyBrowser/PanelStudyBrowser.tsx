@@ -171,34 +171,14 @@ function PanelStudyBrowser({
         if (!StudyInstanceUID || !madeInClient) {
           return;
         }
-        const study = DicomMetadataStore.getStudy(StudyInstanceUID) as any;
-        if (!study) {
+        const entry = _getStudyEntryFromStore(StudyInstanceUID);
+        if (!entry) {
           return;
         }
-        const firstInstance = study.series?.[0]?.instances?.[0];
-        if (!firstInstance) {
-          return;
-        }
-        const modalities = new Set<string>();
-        let numInstances = 0;
-        study.series.forEach((s: any) => {
-          numInstances += s.instances.length;
-          if (s.instances[0]?.Modality) {
-            modalities.add(s.instances[0].Modality);
-          }
-        });
-
-        const entry = {
-          studyInstanceUid: StudyInstanceUID,
-          date: formatDate(firstInstance.StudyDate) || '',
-          description: firstInstance.StudyDescription,
-          modalities: Array.from(modalities).join('/'),
-          numInstances,
-        };
 
         setStudyDisplayList(prevArray => {
           if (prevArray.find(it => it.studyInstanceUid === StudyInstanceUID)) {
-            return prevArray;
+            return _updateStudyCounts(prevArray, entry);
           }
           return [...prevArray, entry];
         });
@@ -211,6 +191,33 @@ function PanelStudyBrowser({
 
     return () => {
       subscription.unsubscribe();
+    };
+  }, []);
+
+  // Studies and series removed from the viewer session (see removeFromViewer).
+  useEffect(() => {
+    const seriesRemoved = DicomMetadataStore.subscribe(
+      DicomMetadataStore.EVENTS.SERIES_REMOVED,
+      ({ StudyInstanceUID }) => {
+        const entry = _getStudyEntryFromStore(StudyInstanceUID);
+        if (entry) {
+          setStudyDisplayList(prevArray => _updateStudyCounts(prevArray, entry));
+        }
+      }
+    );
+    const studyRemoved = DicomMetadataStore.subscribe(
+      DicomMetadataStore.EVENTS.STUDY_REMOVED,
+      ({ StudyInstanceUID }) => {
+        setStudyDisplayList(prevArray =>
+          prevArray.filter(it => it.studyInstanceUid !== StudyInstanceUID)
+        );
+        setExpandedStudyInstanceUIDs(prev => prev.filter(uid => uid !== StudyInstanceUID));
+      }
+    );
+
+    return () => {
+      seriesRemoved.unsubscribe();
+      studyRemoved.unsubscribe();
     };
   }, []);
 
@@ -531,6 +538,42 @@ function _mapDataSourceStudies(studies) {
       StudyTime: study.time,
     };
   });
+}
+
+/**
+ * Builds a study browser entry from the metadata store, for studies added or
+ * changed in this session rather than returned by a data source query.
+ */
+function _getStudyEntryFromStore(StudyInstanceUID) {
+  const study = DicomMetadataStore.getStudy(StudyInstanceUID) as any;
+  const firstInstance = study?.series?.[0]?.instances?.[0];
+  if (!firstInstance) {
+    return;
+  }
+  const modalities = new Set<string>();
+  let numInstances = 0;
+  study.series.forEach((s: any) => {
+    numInstances += s.instances.length;
+    if (s.instances[0]?.Modality) {
+      modalities.add(s.instances[0].Modality);
+    }
+  });
+
+  return {
+    studyInstanceUid: StudyInstanceUID,
+    date: formatDate(firstInstance.StudyDate) || '',
+    description: firstInstance.StudyDescription,
+    modalities: Array.from(modalities).join('/'),
+    numInstances,
+  };
+}
+
+function _updateStudyCounts(studyDisplayList, entry) {
+  return studyDisplayList.map(it =>
+    it.studyInstanceUid === entry.studyInstanceUid
+      ? { ...it, modalities: entry.modalities, numInstances: entry.numInstances }
+      : it
+  );
 }
 
 function _mapDisplaySets(displaySets, displaySetLoadingState, thumbnailImageSrcMap, viewports) {

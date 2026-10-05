@@ -3,7 +3,14 @@ import i18n from '@ohif/i18n';
 const { formatDate } = utils;
 
 export default {
-  'studyBrowser.studyMenuItems': [],
+  'studyBrowser.studyMenuItems': [
+    {
+      id: 'removeStudy',
+      label: i18n.t('StudyBrowser:Remove Study'),
+      iconName: 'Delete',
+      commands: 'removeStudyFromViewer',
+    },
+  ],
   'studyBrowser.thumbnailMenuItems': [
     {
       id: 'tagBrowser',
@@ -16,6 +23,12 @@ export default {
       label: i18n.t('StudyBrowser:Add as Layer'),
       iconName: 'ViewportViews',
       commands: 'addDisplaySetAsLayer',
+    },
+    {
+      id: 'removeSeries',
+      label: i18n.t('StudyBrowser:Remove Series'),
+      iconName: 'Delete',
+      commands: 'removeSeriesFromViewer',
     },
   ],
   'studyBrowser.sortFunctions': [

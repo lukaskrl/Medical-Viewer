@@ -27,6 +27,12 @@ import { useViewportsByPositionStore } from './stores/useViewportsByPositionStor
 import { useToggleOneUpViewportGridStore } from './stores/useToggleOneUpViewportGridStore';
 import requestDisplaySetCreationForStudy from './Panels/requestDisplaySetCreationForStudy';
 import promptSaveReport from './utils/promptSaveReport';
+import {
+  collectDisplaySetsToRemove,
+  removeDisplaySetsFromViewer,
+  removeStudyFromViewer,
+} from './utils/removeFromViewer';
+import { RemoveFromViewerModal } from './utils/RemoveFromViewerModal';
 
 export type HangingProtocolParams = {
   protocolId?: string;
@@ -58,6 +64,26 @@ const commandsModule = ({
 
   // Define a context menu controller for use with any context menus
   const contextMenuController = new ContextMenuController(servicesManager, commandsManager);
+
+  const _confirmRemoval = ({ title, message, details, remove }) => {
+    servicesManager.services.uiModalService.show({
+      title,
+      content: RemoveFromViewerModal,
+      contentProps: {
+        message,
+        details,
+        onConfirm: () =>
+          remove().catch(error => {
+            console.error(error);
+            uiNotificationService.show({
+              title,
+              message: `Removal failed: ${error.message}`,
+              type: 'error',
+            });
+          }),
+      },
+    });
+  };
 
   const actions = {
     /**
@@ -674,6 +700,74 @@ const commandsModule = ({
     },
 
     /**
+     * Asks for confirmation, then removes a study from the viewer session so
+     * other data can be loaded in its place.
+     */
+    removeStudyFromViewer({ StudyInstanceUID }: { StudyInstanceUID: string }) {
+      const allDisplaySets = [...displaySetService.getDisplaySetCache().values()];
+      const displaySets = collectDisplaySetsToRemove(
+        allDisplaySets.filter(ds => ds.StudyInstanceUID === StudyInstanceUID),
+        allDisplaySets
+      );
+      const study = DicomMetadataStore.getStudy(StudyInstanceUID);
+      const description =
+        study?.StudyDescription || study?.series[0]?.instances[0]?.StudyDescription;
+      const linkedElsewhere = new Set(
+        displaySets
+          .filter(ds => ds.StudyInstanceUID !== StudyInstanceUID)
+          .map(ds => ds.SeriesInstanceUID)
+      ).size;
+
+      _confirmRemoval({
+        title: 'Remove Study',
+        message: `Remove ${description ? `"${description}"` : 'this study'} from the viewer?`,
+        details:
+          'Its segmentations and measurements are removed too' +
+          (linkedElsewhere ? `, as are ${linkedElsewhere} linked series in other studies.` : '.'),
+        remove: () =>
+          removeStudyFromViewer(
+            { servicesManager, commandsManager, extensionManager },
+            StudyInstanceUID,
+            displaySets
+          ),
+      });
+    },
+
+    /**
+     * Asks for confirmation, then removes the series of a display set, and the
+     * segmentations that reference it, from the viewer session.
+     */
+    removeSeriesFromViewer({ displaySetInstanceUID }: { displaySetInstanceUID: string }) {
+      const displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
+      if (!displaySet) {
+        return;
+      }
+      const displaySets = collectDisplaySetsToRemove(
+        [displaySet],
+        [...displaySetService.getDisplaySetCache().values()]
+      );
+      const linkedSeries = new Set(
+        displaySets
+          .filter(ds => ds.SeriesInstanceUID !== displaySet.SeriesInstanceUID)
+          .map(ds => ds.SeriesInstanceUID)
+      ).size;
+      const name = displaySet.SeriesDescription || `${displaySet.Modality} series`;
+
+      _confirmRemoval({
+        title: 'Remove Series',
+        message: `Remove "${name}" from the viewer?`,
+        details: linkedSeries
+          ? `${linkedSeries} linked segmentation series ${linkedSeries === 1 ? 'is' : 'are'} removed too.`
+          : null,
+        remove: () =>
+          removeDisplaySetsFromViewer(
+            { servicesManager, commandsManager, extensionManager },
+            displaySets
+          ),
+      });
+    },
+
+    /**
      * Toggle viewport overlay (the information panel shown on the four corners
      * of the viewport)
      * @see ViewportOverlay and CustomizableViewportOverlay components
@@ -857,6 +951,8 @@ const commandsModule = ({
     setViewportGridLayout: actions.setViewportGridLayout,
     toggleOneUp: actions.toggleOneUp,
     openDICOMTagViewer: actions.openDICOMTagViewer,
+    removeStudyFromViewer: actions.removeStudyFromViewer,
+    removeSeriesFromViewer: actions.removeSeriesFromViewer,
     updateViewportDisplaySet: actions.updateViewportDisplaySet,
     scrollActiveThumbnailIntoView: actions.scrollActiveThumbnailIntoView,
     addDisplaySetAsLayer: actions.addDisplaySetAsLayer,

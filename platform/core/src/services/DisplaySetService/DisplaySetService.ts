@@ -201,7 +201,10 @@ export default class DisplaySetService extends PubSubService {
     );
 
     displaySetCache.delete(displaySetInstanceUID);
-    activeDisplaySets.splice(activeDisplaySetsIndex, 1);
+    // splice(-1, 1) would drop the last active display set instead
+    if (activeDisplaySetsIndex !== -1) {
+      activeDisplaySets.splice(activeDisplaySetsIndex, 1);
+    }
     activeDisplaySetsMap.delete(displaySetInstanceUID);
 
     this._broadcastEvent(EVENTS.DISPLAY_SETS_CHANGED, this.activeDisplaySets);

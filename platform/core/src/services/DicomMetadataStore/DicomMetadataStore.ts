@@ -9,6 +9,8 @@ const EVENTS = {
   INSTANCES_ADDED: 'event::dicomMetadataStore:instancesAdded',
   SERIES_ADDED: 'event::dicomMetadataStore:seriesAdded',
   SERIES_UPDATED: 'event::dicomMetadataStore:seriesUpdated',
+  SERIES_REMOVED: 'event::dicomMetadataStore:seriesRemoved',
+  STUDY_REMOVED: 'event::dicomMetadataStore:studyRemoved',
 };
 
 /**
@@ -298,6 +300,51 @@ const BaseImplementation = {
       newStudy.NumInstances = study.NumInstances; // todo: Correct naming?
 
       _model.studies.push(newStudy);
+    }
+  },
+  /**
+   * Removes a series and its instances from the store. Removing the last
+   * series of a study removes the study too.
+   */
+  removeSeries(StudyInstanceUID, SeriesInstanceUID) {
+    const study = _getStudy(StudyInstanceUID);
+    const seriesIndex =
+      study?.series.findIndex(aSeries => aSeries.SeriesInstanceUID === SeriesInstanceUID) ?? -1;
+    if (seriesIndex === -1) {
+      return;
+    }
+
+    const [series] = study.series.splice(seriesIndex, 1);
+    this._broadcastEvent(EVENTS.SERIES_REMOVED, {
+      StudyInstanceUID,
+      SeriesInstanceUID,
+      series,
+    });
+
+    if (!study.series.length) {
+      _model.studies.splice(_model.studies.indexOf(study), 1);
+      this._broadcastEvent(EVENTS.STUDY_REMOVED, { StudyInstanceUID });
+    }
+  },
+  /**
+   * Removes a study with all of its series from the store.
+   */
+  removeStudy(StudyInstanceUID) {
+    const study = _getStudy(StudyInstanceUID);
+    if (!study) {
+      return;
+    }
+
+    // Removing the last series also removes the study.
+    [...study.series].forEach(aSeries =>
+      this.removeSeries(StudyInstanceUID, aSeries.SeriesInstanceUID)
+    );
+
+    // A study that had no series is still in the model.
+    const studyIndex = _model.studies.indexOf(study);
+    if (studyIndex !== -1) {
+      _model.studies.splice(studyIndex, 1);
+      this._broadcastEvent(EVENTS.STUDY_REMOVED, { StudyInstanceUID });
     }
   },
   getStudyInstanceUIDs: _getStudyInstanceUIDs,

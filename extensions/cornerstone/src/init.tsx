@@ -38,6 +38,7 @@ import initContextMenu from './initContextMenu';
 import initDoubleClick from './initDoubleClick';
 import initViewTiming from './utils/initViewTiming';
 import { initProbe3DMarkers } from './utils/probe3DMarkers';
+import { initReleaseRemovedVolumes } from './utils/releaseRemovedVolumes';
 import { colormaps } from './utils/colormaps';
 import { SegmentationRepresentations } from '@cornerstonejs/tools/enums';
 import { useLutPresentationStore } from './stores/useLutPresentationStore';
@@ -250,6 +251,9 @@ export default async function init({
 
   // Render measurement points (Probe) as 3D markers in VOLUME_3D viewports.
   this.probe3DMarkersTeardown = initProbe3DMarkers({ servicesManager });
+
+  // Free the memory of studies and series removed from the viewer.
+  initReleaseRemovedVolumes(displaySetService);
 
   // When a custom image load is performed, update the relevant viewports
   hangingProtocolService.subscribe(

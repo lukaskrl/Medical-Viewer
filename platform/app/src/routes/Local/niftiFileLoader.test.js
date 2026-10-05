@@ -1,5 +1,7 @@
 jest.mock('@ohif/core', () => ({
   DicomMetadataStore: {
+    EVENTS: { SERIES_REMOVED: 'seriesRemoved' },
+    subscribe: jest.fn(),
     addInstances: jest.fn(),
     getStudy: jest.fn(),
     getSeries: jest.fn(),
@@ -234,5 +236,30 @@ describe('niftiFileLoader grid-matched references', () => {
     expect(seg.PatientID).toBe('patient-1');
     expect(seg.PatientName).toBe('Doe^Jane');
     expect(canvases()).toHaveLength(0);
+  });
+});
+
+describe('niftiFileLoader series removal', () => {
+  it('frees the pixel data of a series removed from the metadata store', async () => {
+    const cornerstone = require('@cornerstonejs/core');
+    const { imageIds } = registerParsedVolume({
+      scalarData: new Uint8Array(2 * 2 * 3),
+      rows: 2,
+      columns: 2,
+      numSlices: 3,
+      spacing: [1, 1, 1],
+      direction: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+      origin: [0, 0, 0],
+      ArrayConstructor: Uint8Array,
+    });
+    const [, loadImage] = cornerstone.imageLoader.registerImageLoader.mock.calls[0];
+    const [eventName, onSeriesRemoved] = DicomMetadataStore.subscribe.mock.calls[0];
+
+    expect(eventName).toBe(DicomMetadataStore.EVENTS.SERIES_REMOVED);
+    await expect(loadImage(imageIds[0]).promise).resolves.toMatchObject({ imageId: imageIds[0] });
+
+    onSeriesRemoved({ series: { instances: imageIds.map(imageId => ({ imageId })) } });
+
+    await expect(loadImage(imageIds[0]).promise).rejects.toThrow('NIfTI data not found');
   });
 });
