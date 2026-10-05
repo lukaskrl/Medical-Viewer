@@ -47,7 +47,12 @@ import {
   SplineContourSegmentationTool,
   LabelMapEditWithContourTool,
 } from '@cornerstonejs/tools';
-import { getEnabledElement, VolumeViewport, utilities as csUtils } from '@cornerstonejs/core';
+import {
+  cache,
+  getEnabledElement,
+  VolumeViewport,
+  utilities as csUtils,
+} from '@cornerstonejs/core';
 import { LabelmapSlicePropagationTool, MarkerLabelmapTool } from '@cornerstonejs/ai';
 import * as polySeg from '@cornerstonejs/polymorphic-segmentation';
 import labelmapDisplay from '@cornerstonejs/tools/tools/displayTools/Labelmap/labelmapDisplay';
@@ -281,6 +286,11 @@ function patchLabelmapRespectRepresentationVisibility() {
  * The dynamic range is constant for a given volume (and for a given stack
  * image), so cache the multiplier by volumeId / current imageId. The scan then
  * runs once per volume instead of once per frame; drag sensitivity is identical.
+ *
+ * That one scan still reads each voxel through the image cache and took
+ * ~350 ms on a 512x512 CT, freezing the first W/L drag on every volume. For
+ * volumes the range is taken from the middle image's pixel data instead
+ * (~1 ms, same multiplier).
  */
 function patchWindowLevelDynamicRangeCache() {
   if (isWindowLevelMultiplierPatched) {
@@ -302,7 +312,9 @@ function patchWindowLevelDynamicRangeCache() {
       return multiplierCache.get(key);
     }
 
-    const multiplier = original.call(this, viewport, volumeId);
+    const multiplier =
+      (volumeId && getVolumeMultiplierFromMiddleImage(volumeId)) ??
+      original.call(this, viewport, volumeId);
 
     if (key) {
       multiplierCache.set(key, multiplier);
@@ -312,6 +324,51 @@ function patchWindowLevelDynamicRangeCache() {
   };
 
   isWindowLevelMultiplierPatched = true;
+}
+
+// WindowLevelTool's DEFAULT_IMAGE_DYNAMIC_RANGE.
+const WINDOW_LEVEL_DEFAULT_IMAGE_DYNAMIC_RANGE = 1024;
+
+/**
+ * Same formula as WindowLevelTool._getMultiplierFromDynamicRange, with the
+ * range read from the volume's middle image. Upstream scans the middle slice
+ * of the viewport's orientation, so sagittal and coronal views see a different
+ * slice; the multiplier only sets drag sensitivity, so that does not matter.
+ *
+ * @returns {number | undefined} undefined when the image is not cached yet
+ */
+function getVolumeMultiplierFromMiddleImage(volumeId) {
+  const volume = cache.getVolume(volumeId);
+  const imageIds = volume?.imageIds;
+  if (!imageIds?.length) {
+    return undefined;
+  }
+
+  const image = cache.getImage(imageIds[Math.floor(imageIds.length / 2)]);
+  const pixelData = image?.getPixelData?.();
+  if (!pixelData?.length) {
+    return undefined;
+  }
+
+  let min = Infinity;
+  let max = -Infinity;
+  for (let i = 0; i < pixelData.length; i++) {
+    const value = pixelData[i];
+    if (value < min) {
+      min = value;
+    }
+    if (value > max) {
+      max = value;
+    }
+  }
+
+  const bitsStored = volume.metadata?.BitsStored;
+  const range = Math.min(max - min, bitsStored ? 2 ** bitsStored : Infinity);
+  const ratio = range / WINDOW_LEVEL_DEFAULT_IMAGE_DYNAMIC_RANGE;
+  if (!Number.isFinite(ratio)) {
+    return undefined;
+  }
+  return ratio > 1 ? Math.round(ratio) : ratio;
 }
 
 export default function initCornerstoneTools() {

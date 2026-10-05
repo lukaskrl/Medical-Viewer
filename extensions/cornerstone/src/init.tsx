@@ -39,6 +39,7 @@ import initDoubleClick from './initDoubleClick';
 import initViewTiming from './utils/initViewTiming';
 import { initProbe3DMarkers } from './utils/probe3DMarkers';
 import { initReleaseRemovedVolumes } from './utils/releaseRemovedVolumes';
+import { initSlabRayStep } from './utils/slabRayStep';
 import { colormaps } from './utils/colormaps';
 import { SegmentationRepresentations } from '@cornerstonejs/tools/enums';
 import { useLutPresentationStore } from './stores/useLutPresentationStore';
@@ -254,6 +255,9 @@ export default async function init({
 
   // Free the memory of studies and series removed from the viewer.
   initReleaseRemovedVolumes(displaySetService);
+
+  // Cheaper ray marching for thick MPR slabs (MIP, MinIP, average).
+  initSlabRayStep();
 
   // When a custom image load is performed, update the relevant viewports
   hangingProtocolService.subscribe(
